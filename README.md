@@ -1,5 +1,5 @@
 # md-lv
-Overdamped Langevin dynamics with periodic boundary conditions in Rust. This code is meant to be run on very small systems (N < 100) do to the lack of internal neighbor data.
+Overdamped Langevin dynamics with periodic boundary conditions in Rust. This code is meant to be run on very small systems (N < 100) due to the lack of internal neighbor data.
 
 ![Ovito output](movies/liquid1.gif)
 
