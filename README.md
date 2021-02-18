@@ -3,8 +3,18 @@ Overdamped Langevin dynamics with periodic boundary conditions in Rust. This cod
 
 ![Ovito output](movies/liquid1.gif)
 
-# Usage Description
+# Building
+Building md-lv just requires `rustc`, `cargo`.
+
+```bash
+cargo build --release
 ```
+
+# Usage Description
+
+Simply run `./target/release/md-lv` to run the simulation with default parameters. Additional parameters can be specified at the command line as show below.
+
+```bash
 Langevin dynamics simulation 0.2.1
 Ian Graham <irgraham1@gmail.com>
 Runs a simulation of a collection of Hertzian particles in the NVT ensemble. Applies overdamped langevin dynamics to update the system.
