@@ -2,8 +2,8 @@
 Overdamped Langevin dynamics with periodic boundary conditions in Rust. This code is meant to be run on very small systems (N < 100) do to the lack of internal neighbor data.
 
 <figure class="video_container">
-  <video controls="true" allowfullscreen="true" poster="movies/liquid1.png">
-    <source src="movies/liquid1.mp4" type="video/mp4">
+  <video controls="true" allowfullscreen="true" poster="movies/sample1.png">
+    <source src="movies/sample1.mp4" type="video/mp4">
   </video>
 </figure>
 
