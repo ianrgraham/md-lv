@@ -1,13 +1,9 @@
 # md-lv
 Overdamped Langevin dynamics with periodic boundary conditions in Rust. This code is meant to be run on very small systems (N < 100) do to the lack of internal neighbor data.
 
-<figure class="video_container">
-  <video controls="true" allowfullscreen="true" poster="movies/sample1.png">
-    <source src="movies/sample1.mp4" type="video/mp4">
-  </video>
-</figure>
+![Ovito output](movies/liquid1.gif)
 
-# Description
+# Usage Description
 ```
 Langevin dynamics simulation 0.2.1
 Ian Graham <irgraham1@gmail.com>
