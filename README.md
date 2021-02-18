@@ -14,7 +14,7 @@ cargo build --release
 
 Simply run `./target/release/md-lv` to run the simulation with default parameters. Additional parameters can be specified at the command line as show below.
 
-```bash
+```
 Langevin dynamics simulation 0.2.1
 Ian Graham <irgraham1@gmail.com>
 Runs a simulation of a collection of Hertzian particles in the NVT ensemble. Applies overdamped langevin dynamics to update the system.
