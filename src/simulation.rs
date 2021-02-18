@@ -1,3 +1,5 @@
+use rand::prelude::*;
+use rand_pcg::Pcg64;
 use rand::Rng;
 use rand_distr::{Normal, Distribution};
 use std::fs::OpenOptions;
@@ -9,10 +11,9 @@ pub struct Simulation {
     pub x: Vec<[f64; 3]>,
     pub b: [f64; 3],
     pub bh: [f64; 3],
-    pub rcut: f64,
-    pub rng: rand::prelude::ThreadRng,
-    pub normal: rand_distr::Normal<f64>,
     pub sigma: f64,
+    pub rng: rand_pcg::Lcg128Xsl64,
+    pub normal: rand_distr::Normal<f64>,
     pub dim: usize,
     pub a_term: f64,
     pub b_term: f64,
@@ -23,7 +24,10 @@ impl Simulation {
 
     // initialize system from Config struct
     pub fn new_from_config(config: &Config) -> Simulation {
-        let rcut: f64 = 1.0;
+
+        let seed = config.seed;
+
+        let sigma: f64 = 1.0;
         let beta = 1./config.temp;
 
         let dt = config.dt;
@@ -34,7 +38,9 @@ impl Simulation {
 
         let mut b: [f64; 3] = [1., 1., 1.];
         let mut bh: [f64; 3] = [0.5, 0.5, 0.5];
-        let l = config.vol.powf(1./3.);
+
+        // compute l from volume respecting dimension of the box
+        let l = config.vol.powf(1./(dim as f64));
         let l2 = l/2.0;
         for i in 0..dim {
             b[i] = l;
@@ -43,7 +49,8 @@ impl Simulation {
 
         let mut x = Vec::<[f64; 3]>::with_capacity(config.num);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = Pcg64::seed_from_u64(seed);
+
         if dim == 3 {
             for _ in 0..(config.num) {
                 x.push([rng.gen::<f64>()*l - l2, rng.gen::<f64>()*l - l2, rng.gen::<f64>()*l - l2])
@@ -66,7 +73,7 @@ impl Simulation {
 
         let file = BufWriter::new(file);
 
-        let sim = Simulation{x: x, b: b, bh: bh, rcut: rcut, rng: rng, normal: normal, sigma: rcut, 
+        let sim = Simulation{x: x, b: b, bh: bh, rng: rng, normal: normal, sigma: sigma, 
                 dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file};
         sim
     }
@@ -85,7 +92,7 @@ impl Simulation {
             }
             dr = self.pbc_vdr_vec(&i, &j);
             norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
-            if norm > self.rcut {
+            if norm > self.sigma {
                 continue;
             }
             mag = (1.0/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
@@ -110,7 +117,7 @@ impl Simulation {
             for j in (i+1)..num {
                 dr = self.pbc_vdr_vec(&i, &j);
                 norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
-                if norm > self.rcut {
+                if norm > self.sigma {
                     continue;
                 }
                 mag = (1.0/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
@@ -156,10 +163,9 @@ impl Simulation {
         // calculate forces
         let forces = self.f_system_hertz();
         let dim = self.dim;
-        let rng = rand::thread_rng();
 
         // sample normal distribution 
-        let w: Vec<f64> = self.normal.sample_iter(rng).take(self.dim*self.x.len()).collect();
+        let w: Vec<f64> = self.normal.sample_iter(&mut self.rng).take(self.dim*self.x.len()).collect();
         
         // apply Euler–Maruyama method to update postions
         let mut index = 0;

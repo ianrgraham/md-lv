@@ -1,4 +1,3 @@
-
 pub mod simulation;
 pub mod config;
 
@@ -19,10 +18,12 @@ fn main() {
         sim.langevin_step();
 
         // write data to file
-        if step % 50 == 0 {
+        if step % config.write_step == 0 {
             sim.dump_xyz();
         }
-        if step % 100000 == 0 {
+
+        // print to terminal
+        if step % config.stdout_step == 0 {
             println!("{}", step);
         }
     }

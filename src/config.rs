@@ -10,7 +10,8 @@ pub struct Config {
     pub dt: f64,
     pub visc: f64,
     pub write_step: usize,
-    pub stdout_step: usize
+    pub stdout_step: usize,
+    pub seed: u64,
 }
 
 impl Config {
@@ -18,9 +19,9 @@ impl Config {
     // initialize configuration from command line arguments
     pub fn new() -> Config {
         let matches = App::new("Langevin dynamics simulation")
-            .version("0.2.0")
+            .version("0.2.1")
             .author("Ian Graham <irgraham1@gmail.com>")
-            .about("Runs a simulation of a collection of Hertzian particles in the NVT ensemble. Applies overdamped langevin dynamics to update the system")
+            .about("Runs a simulation of a collection of Hertzian particles in the NVT ensemble. Applies overdamped langevin dynamics to update the system.")
             .arg(Arg::with_name("NUM")
                 .short("n")
                 .long("num")
@@ -73,6 +74,11 @@ impl Config {
                 .help("Number of steps between messages to stdout")
                 .takes_value(true)
                 .default_value("1_000_000"))
+            .arg(Arg::with_name("SEED")
+                .long("seed")
+                .help("Random seed to initialize the system state")
+                .takes_value(true)
+                .default_value("0"))
             .get_matches();
 
         let num = Config::conv_match::<usize>(&matches, "NUM");
@@ -84,14 +90,17 @@ impl Config {
         let dim = Config::conv_match::<usize>(&matches, "DIM");
         let write_step = Config::conv_match::<usize>(&matches, "OUT");
         let stdout_step = Config::conv_match::<usize>(&matches, "IO");
+        let seed = Config::conv_match::<u64>(&matches, "SEED");
 
-        Config{num: num, vol: vol, temp: temp, step_max: step_max, dt: dt, 
-                visc: visc, dim: dim, write_step: write_step, stdout_step: stdout_step}
+        Config{num: num, vol: vol, temp: temp, step_max: step_max, dt: dt, visc: visc, 
+                dim: dim, write_step: write_step, stdout_step: stdout_step, seed: seed}
     }
 
     // format output file suffix with configuration data
     pub fn format_file_suffix(&self) -> String {
-        format!("n{}_v{}_t{}_step{}_dt{}_visc{}", self.num, self.vol, self.temp, self.step_max, self.dt, self.visc)
+        format!("n{}_v{}_t{}_step{}_dt{}_visc{}_seed{}", 
+                self.num, self.vol, self.temp, self.step_max, 
+                self.dt, self.visc, self.seed)
     }
 
     // convert matches to corresponding generic types

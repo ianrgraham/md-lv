@@ -1,6 +1,6 @@
 [package]
 name = "md-lv"
-version = "0.1.0"
+version = "0.2.1"
 authors = ["Ian Graham"]
 edition = "2018"
 
@@ -9,7 +9,6 @@ edition = "2018"
 [dependencies]
 rand = "0.8"
 rand_distr = "0.4"
-#rand-08 = { package = "rand", version = "0.8" }
-#rand-07 = { package = "rand", version = "0.7" }
+rand_pcg = "0.3"
 clap = "2.33"
 sprs = "0.9"
