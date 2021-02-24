@@ -116,9 +116,9 @@ impl StdConfig {
 
 impl Config for StdConfig {
     fn file_suffix(&self) -> String {
-        format!("replica_n{}_v{}_t{}_step{}_dt{}_visc{}_seed{}", 
+        format!("replica_n{}_v{}_t{}_step{}_dt{}_visc{}_seed{}_out{}", 
                 self.num, self.vol, self.temp, self.step_max, 
-                self.dt, self.visc, self.seed)
+                self.dt, self.visc, self.seed, self.write_step)
     }
 }
 
@@ -151,18 +151,18 @@ impl ReplicaConfig {
         let matches = App::new("Langevin dynamics simulation of Replicas")
             .version("0.2.1")
             .author("Ian Graham <irgraham1@gmail.com>")
-            .about("Runs two parallel simulations of collections of Hertzian particles in the NVT ensemble. Applies overdamped langevin dynamics to update the system, where both systems share the same noise. \
-                    The second realization is compressed while the first is held at a fixed box size.")
+            .about("Runs a simulation of a collection of Hertzian particles in the NVT ensemble. Applies overdamped langevin dynamics to update the system. Tracks potential bias of the system assuming compression of the box \
+                    (dialation of the particle radii in practice).")
             .arg(Arg::with_name("NUM")
                 .short("n")
                 .long("num")
-                .help("Number of particles in each box")
+                .help("Number of particles in the box")
                 .takes_value(true)
                 .default_value("10"))
             .arg(Arg::with_name("VOL")
                 .short("v")
                 .long("vol")
-                .help("Initial volume (area) of both boxes")
+                .help("Initial volume (area) of the box")
                 .takes_value(true)
                 .default_value("8.0"))
             .arg(Arg::with_name("FVOL")
@@ -173,17 +173,17 @@ impl ReplicaConfig {
             .arg(Arg::with_name("TEMP")
                 .short("t")
                 .long("temp")
-                .help("Temperature of both systems")
+                .help("Temperature of the system")
                 .takes_value(true)
                 .default_value("0.5"))
             .arg(Arg::with_name("DT")
                 .long("dt")
-                .help("Size of both systems' timestep")
+                .help("Size of the system timestep")
                 .takes_value(true)
                 .default_value("1e-3"))
             .arg(Arg::with_name("VISC")
                 .long("visc")
-                .help("Viscous drag coefficient on the particles of each system")
+                .help("Viscous drag coefficient on the particles of the system")
                 .takes_value(true)
                 .default_value("5.0"))
             .arg(Arg::with_name("STEP")
@@ -195,7 +195,7 @@ impl ReplicaConfig {
             .arg(Arg::with_name("DIM")
                 .short("d")
                 .long("dim")
-                .help("Dimensions of the simulation boxes (2 or 3)")
+                .help("Dimensions of the simulation boxe (2 or 3)")
                 .takes_value(true)
                 .default_value("2"))
             .arg(Arg::with_name("OUT")
@@ -248,9 +248,9 @@ impl ReplicaConfig {
 
 impl Config for ReplicaConfig {
     fn file_suffix(&self) -> String {
-        format!("replica_n{}_v{}_vf{}_t{}_step{}_dt{}_visc{}_seed{}", 
+        format!("replica_n{}_v{}_vf{}_t{}_step{}_dt{}_visc{}_seed{}_out{}", 
                 self.num, self.vol, self.fvol2, self.temp, self.step_max, 
-                self.dt, self.visc, self.seed)
+                self.dt, self.visc, self.seed, self.write_step)
     }
 }
 
@@ -379,9 +379,9 @@ impl CompressConfig {
 
 impl Config for CompressConfig {
     fn file_suffix(&self) -> String {
-        format!("compress_n{}_v{}_vf{}_t{}_step{}_dt{}_visc{}_seed{}", 
+        format!("compress_n{}_v{}_vf{}_t{}_step{}_dt{}_visc{}_seed{}_out{}", 
                 self.num, self.vol, self.fvol2, self.temp, self.step_max, 
-                self.dt, self.visc, self.seed)
+                self.dt, self.visc, self.seed, self.write_step)
     }
 }
 
