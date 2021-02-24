@@ -6,9 +6,28 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "md-lv"
+path = "src/main.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "replica"
+path = "src/replica.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "compress"
+path = "src/compress.rs"
+test = false
+bench = false
+
 [dependencies]
 rand = "0.8"
 rand_distr = "0.4"
 rand_pcg = "0.3"
 clap = "2.33"
 sprs = "0.9"
+itertools-num = "0.1"
