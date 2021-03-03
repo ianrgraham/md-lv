@@ -47,7 +47,7 @@ impl Simulation {
         let l2 = l/2.0;
         for i in 0..dim {
             b[i] = l;
-            bh[i] = 0.5*l;
+            bh[i] = l2;
         }
 
         let mut x = Vec::<[f64; 3]>::with_capacity(config.num);
@@ -227,6 +227,35 @@ impl Simulation {
         f_hertz_all
     }
 
+    pub fn f_system_hertz_box(&mut self, b: &[f64; 3]) -> Vec<[f64; 3]> {
+        let num = self.x.len();
+        let mut comp: f64;
+        let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
+        for _ in 0..num {
+            f_hertz_all.push([0.0, 0.0, 0.0]);
+        }
+        let mut dr: [f64; 3];
+        let mut norm: f64;
+        let mut mag: f64;
+        for i in 0..(num-1) {
+            for j in (i+1)..num {
+                dr = self.pbc_vdr_vec_box(&i, &j, &b);
+                norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
+                if norm > self.sigma {
+                    continue;
+                }
+                mag = (1.0/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
+                for k in 0..(self.dim) {
+                    comp = mag*dr[k]/norm;
+                    f_hertz_all[i][k] += comp;
+                    f_hertz_all[j][k] -= comp;
+                }
+            }
+
+        }
+        f_hertz_all
+    }
+
     pub fn integration_factor(&self, force_bias: &Vec<[f64; 3]>, w: &Vec<f64>) -> f64 {
         let mut factor = 0.0f64;
         let mut index = 0;
@@ -263,6 +292,27 @@ impl Simulation {
         }
         mdr
     }
+
+    fn pbc_vdr_vec_box(&self, i: &usize, j: &usize, b: &[f64; 3]) -> [f64; 3] {
+        let mut mdr: [f64; 3] = [0.0, 0.0, 0.0];
+        let mut dr: [f64; 3] = [0.0, 0.0, 0.0];
+        let x1 = self.x[*i];
+        let x2 = self.x[*j];
+    
+        for i in 0..(self.dim) {
+            dr[i] = x1[i] - x2[i];
+    
+            if dr[i] >= b[i]*0.5 {
+                dr[i] -= b[i];
+            }
+            else if dr[i] < -b[i]*0.5 {
+                dr[i] += b[i];
+            }
+            mdr[i] += dr[i]
+        }
+        mdr
+    }
+
 
     // use internal random number generator to fetch an index
     #[allow(dead_code)]

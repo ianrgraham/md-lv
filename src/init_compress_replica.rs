@@ -1,7 +1,7 @@
 pub mod simulation;
 pub mod config;
 
-use config::ReplicaConfig;
+use config::InitCompressReplicaConfig;
 use simulation::Simulation;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
@@ -9,7 +9,7 @@ use std::io::{BufWriter, Write};
 fn main() {
 
     // parse command line options
-    let config = ReplicaConfig::new();
+    let config = InitCompressReplicaConfig::new();
 
     // init I_b log buffer
     let mut log_file = init_log_buffer(&config);
@@ -20,10 +20,10 @@ fn main() {
     // some final configuration before going through simulation steps
     let final_sigma = get_final_sigma(&sim, &config);
     let mut integration_factor = 0.0f64;
+    let sigma_b = final_sigma;
 
     // run through simulation steps while slowly compressing the system
     for step in 0..config.step_max {
-        let sigma_b = linspace_at_idx(&step, &1.0, &final_sigma, &config.step_max);
 
         // run MD step
         let w = sim.rand_force_vector();
@@ -53,22 +53,18 @@ fn main() {
     }
 }
 
-fn linspace_at_idx(idx: &usize, start: &f64, end: &f64, num: &usize) -> f64 {
-    return start + (*idx as f64)*(end-start)/(*num as f64 - 1.0) 
-}
-
 fn dump_log(file: &mut std::io::BufWriter<std::fs::File>, message: String) {
     writeln!(file, "{}", message).expect("FILE IO ERROR!");
 }
 
-fn get_final_sigma(sim: &Simulation, config: &ReplicaConfig) -> f64 {
+fn get_final_sigma(sim: &Simulation, config: &InitCompressReplicaConfig) -> f64 {
     let initial_l = sim.length_from_vol(&config.vol);
     let final_l = sim.length_from_vol(&config.fvol2);
     let final_sigma = initial_l/final_l;
     final_sigma
 }
 
-fn init_log_buffer(config: &ReplicaConfig) -> std::io::BufWriter<std::fs::File> {
+fn init_log_buffer(config: &InitCompressReplicaConfig) -> std::io::BufWriter<std::fs::File> {
     let log_file = OpenOptions::new()
     .write(true)
     .create(true)

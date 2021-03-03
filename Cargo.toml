@@ -24,6 +24,24 @@ path = "src/compress.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "init_compress_replica"
+path = "src/init_compress_replica.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "init_compress"
+path = "src/init_compress.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "init_compress_replica_boxy"
+path = "src/init_compress_replica_boxy.rs"
+test = false
+bench = false
+
 [dependencies]
 rand = "0.8"
 rand_distr = "0.4"
