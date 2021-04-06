@@ -116,7 +116,7 @@ impl StdConfig {
 
 impl Config for StdConfig {
     fn file_suffix(&self) -> String {
-        format!("replica_n{}_v{}_t{}_step{}_dt{}_visc{}_seed{}_out{}", 
+        format!("n{}_v{}_t{}_step{}_dt{}_visc{}_seed{}_out{}", 
                 self.num, self.vol, self.temp, self.step_max, 
                 self.dt, self.visc, self.seed, self.write_step)
     }

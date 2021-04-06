@@ -296,17 +296,24 @@ impl Simulation {
     fn pbc_vdr_vec_box(&self, i: &usize, j: &usize, b: &[f64; 3]) -> [f64; 3] {
         let mut mdr: [f64; 3] = [0.0, 0.0, 0.0];
         let mut dr: [f64; 3] = [0.0, 0.0, 0.0];
+        let bh: [f64; 3] = [b[0]*0.5, b[1]*0.5, b[2]*0.5];
         let x1 = self.x[*i];
         let x2 = self.x[*j];
     
         for i in 0..(self.dim) {
             dr[i] = x1[i] - x2[i];
     
-            if dr[i] >= b[i]*0.5 {
+            if dr[i] >= bh[i] {
                 dr[i] -= b[i];
+                while dr[i] >= bh[i] {
+                    dr[i] -= b[i];
+                }
             }
-            else if dr[i] < -b[i]*0.5 {
+            else if dr[i] < -bh[i] {
                 dr[i] += b[i];
+                while dr[i] < -bh[i] {
+                    dr[i] += b[i];
+                }
             }
             mdr[i] += dr[i]
         }

@@ -1,13 +1,13 @@
 pub mod simulation;
 pub mod config;
 
-use config::CompressConfig;
+use config::StdConfig;
 use simulation::Simulation;
 
 fn main() {
 
     // parse command line options
-    let config = CompressConfig::new();
+    let config = StdConfig::new();
     
     // initialize simulation box
     let mut sim = Simulation::new_from_config(config);
