@@ -21,6 +21,7 @@ pub struct Simulation {
     pub file: std::io::BufWriter<std::fs::File>,
 }
 
+
 impl Simulation {
 
     // initialize system from Config struct
@@ -56,12 +57,15 @@ impl Simulation {
 
         if dim == 3 {
             for _ in 0..(config.num) {
-                x.push([rng.gen::<f64>()*l - l2, rng.gen::<f64>()*l - l2, rng.gen::<f64>()*l - l2])
+                x.push([rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2])
             }
         }
         else if dim == 2 {
             for _ in 0..(config.num) {
-                x.push([rng.gen::<f64>()*l - l2, rng.gen::<f64>()*l - l2, 0.0])
+                x.push([rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2, 0.0])
             }
         }
         else {
@@ -86,7 +90,9 @@ impl Simulation {
         vol.powf(1./(self.dim as f64))
     }
 
-    pub fn new_from_config_and_rand<T: Config>(gen_config: T, rng: &mut rand_pcg::Lcg128Xsl64) -> Simulation {
+    pub fn new_from_config_and_rand<T: Config>(
+            gen_config: T, 
+            rng: &mut rand_pcg::Lcg128Xsl64) -> Simulation {
 
         let config = gen_config.into();
 
@@ -118,12 +124,15 @@ impl Simulation {
 
         if dim == 3 {
             for _ in 0..(config.num) {
-                x.push([rng.gen::<f64>()*l - l2, rng.gen::<f64>()*l - l2, rng.gen::<f64>()*l - l2])
+                x.push([rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2])
             }
         }
         else if dim == 2 {
             for _ in 0..(config.num) {
-                x.push([rng.gen::<f64>()*l - l2, rng.gen::<f64>()*l - l2, 0.0])
+                x.push([rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2, 0.0])
             }
         }
         else {
@@ -131,15 +140,16 @@ impl Simulation {
         }
 
         let file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open(format!("traj_{}.xyz", gen_config.file_suffix()))
-        .unwrap();
+            .write(true)
+            .create(true)
+            .open(format!("traj_{}.xyz", gen_config.file_suffix()))
+            .unwrap();
 
         let file = BufWriter::new(file);
 
-        let sim = Simulation{x: x, b: b, bh: bh, rng: _useless_rng, normal: normal, sigma: sigma, 
-                dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file};
+        let sim = Simulation{x: x, b: b, bh: bh, rng: _useless_rng, 
+            normal: normal, sigma: sigma, dim: dim, a_term: dt/visc, 
+            b_term: (2.0/(visc*beta)).sqrt(), file: file};
         sim
     }
 
@@ -256,12 +266,17 @@ impl Simulation {
         f_hertz_all
     }
 
-    pub fn integration_factor(&self, force_bias: &Vec<[f64; 3]>, w: &Vec<f64>) -> f64 {
+    pub fn integration_factor(
+            &self, 
+            force_bias: &Vec<[f64; 3]>, 
+            w: &Vec<f64>) -> f64 {
         let mut factor = 0.0f64;
         let mut index = 0;
         for i in 0..self.x.len() {
             for j in 0..self.dim {
-                factor += force_bias[i][j]*(0.25*self.a_term*force_bias[i][j] + 0.5*self.b_term*w[index]);
+                factor += force_bias[i][j]*(
+                    0.25*self.a_term*force_bias[i][j] + 
+                    0.5*self.b_term*w[index]);
                 index += 1;
             }
         }
@@ -334,13 +349,17 @@ impl Simulation {
         let dim = self.dim;
 
         // sample normal distribution 
-        let w: Vec<f64> = self.normal.sample_iter(&mut self.rng).take(self.dim*self.x.len()).collect();
+        let w: Vec<f64> = self.normal
+            .sample_iter(&mut self.rng)
+            .take(self.dim*self.x.len())
+            .collect();
         
         // apply Euler–Maruyama method to update postions
         let mut index = 0;
         for i in 0..(self.x.len()) {
             for k in 0..dim {
-                self.x[i][k] += self.a_term*forces[i][k] + self.b_term*w[index];
+                self.x[i][k] += 
+                    self.a_term*forces[i][k] + self.b_term*w[index];
                 if self.x[i][k] >= self.bh[k] {
                     self.x[i][k] -= self.b[k]
                 }
@@ -352,7 +371,10 @@ impl Simulation {
         }
     }
 
-    pub fn langevin_step_with_forces_w(&mut self, forces: &Vec<[f64; 3]>, w: &Vec<f64>) {
+    pub fn langevin_step_with_forces_w(
+            &mut self, 
+            forces: &Vec<[f64; 3]>, 
+            w: &Vec<f64>) {
 
         let dim = self.dim;
         
@@ -378,13 +400,21 @@ impl Simulation {
         writeln!(self.file, "{}\n", self.x.len()).expect("FILE IO ERROR!");
     
         for i in 0..(self.x.len()) {
-            writeln!(self.file, "H {} {} {}", self.x[i][0], self.x[i][1], self.x[i][2]).expect("FILE IO ERROR!");
+            writeln!(
+                self.file, 
+                "H {} {} {}", 
+                self.x[i][0], 
+                self.x[i][1], 
+                self.x[i][2])
+                .expect("FILE IO ERROR!");
         }
     }
 
     // return a random vector with the the dimensions of configuration space
     pub fn rand_force_vector(&mut self) -> Vec<f64> {
-        let w: Vec<f64> = self.normal.sample_iter(&mut self.rng).take(self.dim*self.x.len()).collect();
+        let w: Vec<f64> = self.normal.sample_iter(&mut self.rng)
+            .take(self.dim*self.x.len())
+            .collect();
         w
     }
 }
