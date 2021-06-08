@@ -31,6 +31,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "init_compress_replica_unitbox"
+path = "src/init_compress_replica_unitbox.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "init_compress"
 path = "src/init_compress.rs"
 test = false

@@ -86,6 +86,68 @@ impl Simulation {
     }
 
 
+    pub fn new_from_config_unitbox<T: Config>(gen_config: T) -> Simulation {
+
+        let config: StdConfig = gen_config.into();
+
+        let seed = config.seed;
+
+        let beta = 1./config.temp;
+
+        let dt = config.dt;
+        let visc = config.visc;
+        let dim = config.dim;
+        
+        let normal = Normal::new(0.0f64, dt.sqrt()).unwrap();
+
+        let mut b: [f64; 3] = [1., 1., 1.];
+        let mut bh: [f64; 3] = [0.5, 0.5, 0.5];
+
+        // compute l from volume respecting dimension of the box
+        let old_l = config.vol.powf(1./(dim as f64));
+        let sigma = 1.0/old_l;
+        let l = 1.0;
+        let l2 = 0.5;
+        for i in 0..dim {
+            b[i] = l;
+            bh[i] = l2;
+        }
+
+        let mut x = Vec::<[f64; 3]>::with_capacity(config.num);
+
+        let mut rng = Pcg64::seed_from_u64(seed);
+
+        if dim == 3 {
+            for _ in 0..(config.num) {
+                x.push([rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2])
+            }
+        }
+        else if dim == 2 {
+            for _ in 0..(config.num) {
+                x.push([rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2, 0.0])
+            }
+        }
+        else {
+            panic!("Incorrect dimension! Must be 2 or 3!");
+        }
+
+        let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(format!("traj_{}.xyz", gen_config.file_suffix()))
+        .unwrap();
+
+        let file = BufWriter::new(file);
+
+        let sim = Simulation{x: x, b: b, bh: bh, rng: rng, normal: normal, sigma: sigma, 
+                dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file};
+        sim
+    }
+
+
     pub fn length_from_vol(&self, vol: &f64) -> f64 {
         vol.powf(1./(self.dim as f64))
     }
@@ -416,5 +478,13 @@ impl Simulation {
             .take(self.dim*self.x.len())
             .collect();
         w
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        assert_eq!(2 + 2, 4);
     }
 }
