@@ -38,7 +38,7 @@ impl StdConfig {
                 .long("vol")
                 .help("Volume (area) of the box")
                 .takes_value(true)
-                .default_value("6.5"))
+                .default_value("11.0"))
             .arg(Arg::with_name("TEMP")
                 .short("t")
                 .long("temp")

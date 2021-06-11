@@ -4,7 +4,7 @@ Overdamped Langevin dynamics with periodic boundary conditions in Rust. This cod
 ![Ovito output](movies/liquid1.gif)
 
 # Building
-Building md-lv just requires `rustc` and `cargo`. Since all dependencies are vendored, the binary can be built without an internet connection.
+Building md-lv just requires `rustc` and `cargo`.
 
 ```bash
 cargo build --release

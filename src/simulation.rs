@@ -484,7 +484,24 @@ impl Simulation {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn test_replica_bcs() {
+        // check what 
+        let config = StdConfig::new();
+
+        let mut sim = Simulation::new_from_config(config);
+        let vol2 = (5.0).sqrt()
+        b = [2.0, 2.0, 0.0];
+        let num = self.x.len();
+        let mut comp: f64;
+        let mut dr: [f64; 3];
+        let mut norm: f64;
+        let mut mag: f64;
+        for i in 0..(num-1) {
+            for j in (i+1)..num {
+                dr = self.pbc_vdr_vec_box(&i, &j, &b);
+                assert!(dr < b)
+            }
+
+        }
     }
 }
