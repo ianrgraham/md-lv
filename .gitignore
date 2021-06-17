@@ -3,4 +3,5 @@
 /sup_movies
 /sup_src
 /notebooks/sup_images
+/notebooks/.ipynb_checkpoints
 *.xyz
