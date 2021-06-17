@@ -3,8 +3,9 @@ name = "md-lv"
 version = "0.2.1"
 authors = ["Ian Graham"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Overdamped Langevin dyanmics"
+license = "MIT"
+keywords = ["md", "molecular dynamics"]
 
 [[bin]]
 name = "md-lv"
