@@ -6,6 +6,7 @@ use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use crate::config::Config;
 use crate::config::StdConfig;
+use crate::config;
 
 
 pub struct Simulation {
@@ -19,6 +20,7 @@ pub struct Simulation {
     pub a_term: f64,
     pub b_term: f64,
     pub file: std::io::BufWriter<std::fs::File>,
+    pub e: f64
 }
 
 
@@ -81,10 +83,67 @@ impl Simulation {
         let file = BufWriter::new(file);
 
         let sim = Simulation{x: x, b: b, bh: bh, rng: rng, normal: normal, sigma: sigma, 
-                dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file};
+                dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file, e: 1.0};
         sim
     }
 
+    pub fn new_from_config_varboxsigma(config: &config::VarBoxSigmaConfig) -> Simulation {
+
+        let seed = config.seed;
+
+        let sigma: f64 = config.sigma;
+        let e: f64 = config.escale;
+        let beta = 1./config.temp;
+
+        let dt = config.dt;
+        let visc = config.visc;
+        let dim = config.dim;
+        
+        let normal = Normal::new(0.0f64, dt.sqrt()).unwrap();
+
+        let mut b: [f64; 3] = [1., 1., 1.];
+        let mut bh: [f64; 3] = [0.5, 0.5, 0.5];
+
+        let l = config.len;
+        let l2 = l/2.0;
+        for i in 0..dim {
+            b[i] = l;
+            bh[i] = l2;
+        }
+
+        let mut x = Vec::<[f64; 3]>::with_capacity(config.num);
+
+        let mut rng = Pcg64::seed_from_u64(seed);
+
+        if dim == 3 {
+            for _ in 0..(config.num) {
+                x.push([rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2])
+            }
+        }
+        else if dim == 2 {
+            for _ in 0..(config.num) {
+                x.push([rng.gen::<f64>()*l - l2, 
+                    rng.gen::<f64>()*l - l2, 0.0])
+            }
+        }
+        else {
+            panic!("Incorrect dimension! Must be 2 or 3!");
+        }
+
+        let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open(format!("traj_{}.xyz", config.file_suffix()))
+        .unwrap();
+
+        let file = BufWriter::new(file);
+
+        let sim = Simulation{x: x, b: b, bh: bh, rng: rng, normal: normal, sigma: sigma, 
+                dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file, e: e};
+        sim
+    }
 
     pub fn new_from_config_unitbox<T: Config>(gen_config: T) -> Simulation {
 
@@ -143,7 +202,7 @@ impl Simulation {
         let file = BufWriter::new(file);
 
         let sim = Simulation{x: x, b: b, bh: bh, rng: rng, normal: normal, sigma: sigma, 
-                dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file};
+                dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file, e: 1.0};
         sim
     }
 
@@ -211,7 +270,7 @@ impl Simulation {
 
         let sim = Simulation{x: x, b: b, bh: bh, rng: _useless_rng, 
             normal: normal, sigma: sigma, dim: dim, a_term: dt/visc, 
-            b_term: (2.0/(visc*beta)).sqrt(), file: file};
+            b_term: (2.0/(visc*beta)).sqrt(), file: file, e: 1.0};
         sim
     }
 
@@ -232,7 +291,7 @@ impl Simulation {
             if norm > self.sigma {
                 continue;
             }
-            mag = (1.0/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
+            mag = (self.e/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
             for k in 0..(self.dim) {
                 f_hertz[k] += mag*dr[k]/norm;
             }
@@ -257,7 +316,7 @@ impl Simulation {
                 if norm > self.sigma {
                     continue;
                 }
-                mag = (1.0/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
+                mag = (self.e/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
                 for k in 0..(self.dim) {
                     comp = mag*dr[k]/norm;
                     f_hertz_all[i][k] += comp;
@@ -284,10 +343,10 @@ impl Simulation {
             for j in (i+1)..num {
                 dr = self.pbc_vdr_vec(&i, &j);
                 norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
-                if norm > self.sigma {
+                if norm > *sigma {
                     continue;
                 }
-                mag = (1.0/sigma)*(1.0-norm/sigma).powf(1.5);
+                mag = (self.e/sigma)*(1.0-norm/sigma).powf(1.5);
                 for k in 0..(self.dim) {
                     comp = mag*dr[k]/norm;
                     f_hertz_all[i][k] += comp;
@@ -298,6 +357,66 @@ impl Simulation {
         }
         f_hertz_all
     }
+
+    pub fn f_system_hertz_hard(&mut self) -> Vec<[f64; 3]> {
+        let num = self.x.len();
+        let mut comp: f64;
+        let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
+        for _ in 0..num {
+            f_hertz_all.push([0.0, 0.0, 0.0]);
+        }
+        let mut dr: [f64; 3];
+        let mut norm: f64;
+        let mut mag: f64;
+        for i in 0..(num-1) {
+            for j in (i+1)..num {
+                dr = self.vdr_vec(&i, &j);
+                norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
+                if norm > self.sigma {
+                    continue;
+                }
+                mag = (self.e/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
+                for k in 0..(self.dim) {
+                    comp = mag*dr[k]/norm;
+                    f_hertz_all[i][k] += comp;
+                    f_hertz_all[j][k] -= comp;
+                }
+            }
+
+        }
+        f_hertz_all
+    }
+
+    // calculate forces with different sigma
+    pub fn f_system_hertz_hard_sigma(&mut self, sigma: &f64) -> Vec<[f64; 3]> {
+        let num = self.x.len();
+        let mut comp: f64;
+        let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
+        for _ in 0..num {
+            f_hertz_all.push([0.0, 0.0, 0.0]);
+        }
+        let mut dr: [f64; 3];
+        let mut norm: f64;
+        let mut mag: f64;
+        for i in 0..(num-1) {
+            for j in (i+1)..num {
+                dr = self.vdr_vec(&i, &j);
+                norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
+                if norm > *sigma {
+                    continue;
+                }
+                mag = (self.e/sigma)*(1.0-norm/sigma).powf(1.5);
+                for k in 0..(self.dim) {
+                    comp = mag*dr[k]/norm;
+                    f_hertz_all[i][k] += comp;
+                    f_hertz_all[j][k] -= comp;
+                }
+            }
+
+        }
+        f_hertz_all
+    }
+
 
     pub fn f_system_hertz_box(&mut self, b: &[f64; 3]) -> Vec<[f64; 3]> {
         let num = self.x.len();
@@ -316,7 +435,7 @@ impl Simulation {
                 if norm > self.sigma {
                     continue;
                 }
-                mag = (1.0/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
+                mag = (self.e/self.sigma)*(1.0-norm/self.sigma).powf(1.5);
                 for k in 0..(self.dim) {
                     comp = mag*dr[k]/norm;
                     f_hertz_all[i][k] += comp;
@@ -344,11 +463,6 @@ impl Simulation {
         }
         factor
     }
-
-    // #[allow(dead_code)]
-    // pub fn rescale_box() {
-        
-    // }
 
     fn pbc_vdr_vec(&self, i: &usize, j: &usize) -> [f64; 3] {
         let mut mdr: [f64; 3] = [0.0, 0.0, 0.0];
@@ -393,6 +507,18 @@ impl Simulation {
                 }
             }
             mdr[i] += dr[i]
+        }
+        mdr
+    }
+
+    fn vdr_vec(&self, i: &usize, j: &usize) -> [f64; 3] {
+        
+        let mut mdr: [f64; 3] = [0.0, 0.0, 0.0];
+        let x1 = self.x[*i];
+        let x2 = self.x[*j];
+    
+        for i in 0..(self.dim) {
+            mdr[i] = x1[i] - x2[i];
         }
         mdr
     }
@@ -455,6 +581,30 @@ impl Simulation {
             }
         }
     }
+
+    pub fn langevin_step_with_forces_w_hard(
+        &mut self, 
+        forces: &Vec<[f64; 3]>, 
+        w: &Vec<f64>) {
+
+    let dim = self.dim;
+    
+    // apply Euler–Maruyama method to update postions
+    let mut index = 0;
+    for i in 0..(self.x.len()) {
+        for k in 0..dim {
+            let tmp_force = self.a_term*forces[i][k] + self.b_term*w[index];
+            self.x[i][k] += tmp_force;
+            if self.x[i][k] >= self.bh[k] {
+                self.x[i][k] -= tmp_force;
+            }
+            else if self.x[i][k] < -self.bh[k] {
+                self.x[i][k] += tmp_force;
+            }
+            index += 1;
+        }
+    }
+}
 
     // dump simulation state to xyz file
     pub fn dump_xyz(&mut self) {

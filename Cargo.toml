@@ -38,6 +38,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "init_compress_replica_varboxsigma"
+path = "src/init_compress_replica_varboxsigma.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "init_compress"
 path = "src/init_compress.rs"
 test = false
