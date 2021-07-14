@@ -1,4 +1,4 @@
-use clap::{Arg, App};
+use clap::{Arg, App, SubCommand};
 use std::str::FromStr;
 
 
@@ -14,12 +14,15 @@ pub struct Config {
     pub write_step: usize,
     pub stdout_step: usize,
     pub seed: u64,
-    pub dir: String
+    pub dir: String,
+    pub dryprint: bool,
+    pub rscale: f64,
+    pub vscale: f64
 }
 
-        // convert matches to corresponding generic types, panic if there is an issue
-        fn conv_match<T>(matches: &clap::ArgMatches, tag: &str) -> T
-            where T: FromStr, <T as std::str::FromStr>::Err : std::fmt::Debug  {
+// convert matches to corresponding generic types, panic if there is an issue
+fn conv_match<T>(matches: &clap::ArgMatches, tag: &str) -> T
+    where T: FromStr, <T as std::str::FromStr>::Err : std::fmt::Debug  {
     let value = matches.value_of(tag).unwrap();
     FromStr::from_str(value).expect("Failed to convert &str to type T")
 }
@@ -63,11 +66,21 @@ impl Config {
                 .help("Viscous drag coefficient on the particles of the system")
                 .takes_value(true)
                 .default_value("5.0"))
+            .arg(Arg::with_name("RSCALE")
+                .long("rscale")
+                .help("Rescaling distance cutoff for the inter-atomic potentials")
+                .takes_value(true)
+                .default_value("1.0"))
+            .arg(Arg::with_name("VSCALE")
+                .long("vscale")
+                .help("Rescaling coefficient factor for the inter-atomic potentials")
+                .takes_value(true)
+                .default_value("1.0"))
             .arg(Arg::with_name("TIME")
                 .long("time")
                 .help("Run time of the simulation")
                 .takes_value(true)
-                .default_value("10.0"))
+                .default_value("50.0"))
             .arg(Arg::with_name("DIM")
                 .short("d")
                 .long("dim")
@@ -78,49 +91,63 @@ impl Config {
                 .long("dir")
                 .help("Output directory of data dumps")
                 .takes_value(true)
-                .default_value("2"))
+                .default_value("."))
             .arg(Arg::with_name("OUT")
                 .short("o")
                 .long("out-time")
                 .help("Time between output dumps")
                 .takes_value(true)
-                .default_value("0.01"))
+                .default_value("0.1"))
             .arg(Arg::with_name("STDOUT")
                 .short("i")
                 .long("stdout-time")
                 .help("Time between terminal writes")
                 .takes_value(true)
-                .default_value("1.0"))
+                .default_value("100.0"))
             .arg(Arg::with_name("SEED")
                 .long("seed")
                 .help("Random seed to initialize the internal random number generator")
                 .takes_value(true)
                 .default_value("0"))
+            .arg(Arg::with_name("OUTFORMAT")
+                .long("out-format")
+                .help("Format of the simulation output")
+                .possible_values(&["xyz", "hdf"])
+                .takes_value(true)
+                .default_value("xyz"))
+            .subcommand(SubCommand::with_name("dryprint")
+                .about("Used to print out simulation config without running md"))
+            .subcommand(SubCommand::with_name("bias")
+                .about("Used to print out simulation config without running md"))
             .get_matches();
 
-        let num = conv_match::<usize>(&matches, "NUM");
-        let len = conv_match::<f64>(&matches, "LEN");
-        let temp = conv_match::<f64>(&matches, "TEMP");
+        let num = conv_match(&matches, "NUM");
+        let len = conv_match(&matches, "LEN");
+        let temp = conv_match(&matches, "TEMP");
         let time = conv_match::<f64>(&matches, "TIME");
         let dt = conv_match::<f64>(&matches, "DT");
-        let visc = conv_match::<f64>(&matches, "VISC");
-        let dim = conv_match::<usize>(&matches, "DIM");
+        let visc = conv_match(&matches, "VISC");
+        let dim = conv_match(&matches, "DIM");
         let write_time = conv_match::<f64>(&matches, "OUT");
         let stdout_time = conv_match::<f64>(&matches, "STDOUT");
-        let seed = conv_match::<u64>(&matches, "SEED");
-        let dir = conv_match::<String>(&matches, "DIR");
+        let seed = conv_match(&matches, "SEED");
+        let dir = conv_match(&matches, "DIR");
+        let rscale = conv_match(&matches, "RSCALE");
+        let vscale = conv_match(&matches, "VSCALE");
+        let dryprint = matches.subcommand_matches("dryprint").is_some();
 
         let step_max = (time/dt).round() as usize;
         let write_step = (write_time/dt).round() as usize;
         let stdout_step = (stdout_time/dt).round() as usize;
 
         Config{num: num, len: len, temp: temp, time: time, step_max: step_max, dt: dt, visc: visc, 
-                dim: dim, write_step: write_step, stdout_step: stdout_step, seed: seed, dir: dir}
+                dim: dim, write_step: write_step, stdout_step: stdout_step, seed: seed, dir: dir,
+                dryprint: dryprint, rscale: rscale, vscale: vscale}
     }
 
     // format output file suffix with configuration data
     pub fn file_suffix(&self) -> String {
-        format!("n{}_l{}_t{}_time{}_dt{}_visc{}_seed{}", 
+        format!("n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}", 
                 self.num, self.len, self.temp, self.time, 
                 self.dt, self.visc, self.seed)
     }

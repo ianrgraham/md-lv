@@ -5,6 +5,7 @@ use rand_distr::{Normal, Distribution};
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use crate::config::Config;
+use std::process;
 
 
 pub struct Simulation {
@@ -31,7 +32,7 @@ impl Simulation {
         let seed = config.seed;
         let num = config.num;
 
-        let sigmas: [f64; 2] = [0.5, 0.7];
+        let sigmas: [f64; 2] = [0.5*config.rscale, 0.7*config.rscale];
         let beta = 1./config.temp;
 
         let dt = config.dt;
@@ -71,8 +72,8 @@ impl Simulation {
         }
         else if dim == 2 {
             for i in 0..(config.num) {
-                x.push([(rng.gen::<f64>()*l - l2)*0.1, 
-                (rng.gen::<f64>()*l - l2)*0.1, 0.0]);
+                x.push([(rng.gen::<f64>()*l - l2), 
+                (rng.gen::<f64>()*l - l2), 0.0]);
                 if i < num/2 {
                     types.push(0);
                 }
@@ -95,10 +96,17 @@ impl Simulation {
         let part_vol = types.iter().fold(0.0, |acc, idx| acc + coeff*sigmas[*idx].powi(dim as i32));
         let phi = part_vol/vol;
 
+        let path = format!("{}/traj_{}_phi-{:.4}_rA-{:.4}_rB-{:.4}.xyz", config.dir, config.file_suffix(), phi, sigmas[0], sigmas[1]);
+
+        if config.dryprint {
+            println!("A simulation was intended to be processed with the following name, but the dryprint command was used:\n{}", path);
+            process::exit(0);
+        }
+
         let file = OpenOptions::new()
             .write(true)
             .create(true)
-            .open(format!("{}/traj_{}_phi{:.3}.xyz", config.dir, config.file_suffix(), phi))
+            .open(path)
             .unwrap();
 
         let file = BufWriter::new(file);
@@ -127,7 +135,7 @@ impl Simulation {
                 if norm > sigma {
                     continue;
                 }
-                mag = (1.0/sigma)*(1.0-norm/sigma).powf(1.5);
+                mag = (self.config.vscale/sigma)*(1.0-norm/sigma).powf(1.5);
                 for k in 0..(self.dim) {
                     comp = mag*dr[k]/norm;
                     f_hertz_all[i][k] += comp;
@@ -159,7 +167,7 @@ impl Simulation {
                 if norm > sigma {
                     continue;
                 }
-                mag = (1.0/sigma)*(1.0-norm/sigma).powf(1.5);
+                mag = (self.config.vscale/sigma)*(1.0-norm/sigma).powf(1.5);
                 for k in 0..(self.dim) {
                     comp = mag*dr[k]/norm;
                     f_hertz_all[i][k] += comp;

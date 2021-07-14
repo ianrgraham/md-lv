@@ -1,6 +1,6 @@
 [package]
 name = "md-lv"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Ian Graham"]
 edition = "2018"
 description = "Overdamped Langevin dyanmics"
