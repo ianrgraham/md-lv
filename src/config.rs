@@ -1,5 +1,18 @@
 use clap::{Arg, App, SubCommand};
 use std::str::FromStr;
+use serde::{Serialize, Deserialize};
+
+
+#[derive(Serialize, Deserialize)]
+struct MyConfig {
+    version: u8,
+    api_key: String,
+}
+
+/// `MyConfig` implements `Default`
+impl ::std::default::Default for MyConfig {
+    fn default() -> Self { Self { version: 0, api_key: "".into() } }
+}
 
 
 pub struct Config {
