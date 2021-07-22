@@ -38,12 +38,14 @@ fn main() {
 
             let init_x = sim.get_positions();
 
-            let write_outputs = (config.step_max+1)/config.write_step;
+            let write_outputs = config.step_max/config.write_step;
             let variants = variant_config.len();
 
 
             for real in 0..(*realizations) {
-                
+                if real%10 == 0 {
+                    println!("Realization {}", real);
+                }
                 let mut output_integration_factors =
                     Array2::<f64>::zeros((write_outputs, variants));
                 let mut integration_factors = Array1::<f64>::zeros(variants);

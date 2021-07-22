@@ -1,5 +1,7 @@
 use clap::{Arg, App, SubCommand};
 use std::str::FromStr;
+use std::fs::File;
+use std::io::BufReader;
 use serde::*;
 
 
@@ -9,13 +11,14 @@ pub enum ProgramMode {
     Equilibrate(f64, f64)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(hdf5::H5Type, Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[repr(C)]
 pub struct VariantConfig {
     pub rscale: f64,
     pub vscale: f64
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct VariantConfigs {
     pub configs: Vec<VariantConfig>
 }
@@ -24,14 +27,6 @@ impl VariantConfigs {
     pub fn len(&self) -> usize {
         self.configs.len()
     }
-}
-
-impl ::std::default::Default for VariantConfig {
-    fn default() -> Self { panic!(); }  // PANIC!
-}
-
-impl ::std::default::Default for VariantConfigs {
-    fn default() -> Self { panic!(); }  // PANIC!
 }
 
 pub struct Config {
@@ -93,13 +88,18 @@ impl Config {
                 .long("len")
                 .help("Side length of the simulation box")
                 .takes_value(true)
-                .default_value("4.0"))
+                .default_value("3.0"))
+            // .arg(Arg::with_name("PHI")
+            //     .long("phi")
+            //     .takes_value(true)
+            //     .help("Specify instead the packing fraction")
+            //     .conflicts_with("LEN"))
             .arg(Arg::with_name("TEMP")
                 .short("t")
                 .long("temp")
                 .help("Temperature of the system")
                 .takes_value(true)
-                .default_value("0.63"))
+                .default_value("1e-2"))
             .arg(Arg::with_name("DT")
                 .long("dt")
                 .help("Size of the system timestep")
@@ -124,7 +124,7 @@ impl Config {
                 .long("time")
                 .help("Run time of the simulation")
                 .takes_value(true)
-                .default_value("50.0"))
+                .default_value("10.0"))
             .arg(Arg::with_name("DIM")
                 .short("d")
                 .long("dim")
@@ -141,7 +141,7 @@ impl Config {
                 .long("out-time")
                 .help("Time between output dumps")
                 .takes_value(true)
-                .default_value("0.1"))
+                .default_value("1.0"))
             .arg(Arg::with_name("STDOUT")
                 .short("i")
                 .long("stdout-time")
@@ -149,9 +149,12 @@ impl Config {
                 .takes_value(true))
             .arg(Arg::with_name("INIT_CONFIG")
                 .long("init-config")
-                .help("JSON config file initializing the system state.
+                .help("JSON config file initializing the system state. \
                     Will assert that config is valid")
-                .takes_value(true))
+                .takes_value(true)
+                .conflicts_with("NUM")
+                .conflicts_with("LEN")
+                .conflicts_with("DIM"))
             .arg(Arg::with_name("SEED")
                 .long("seed")
                 .help("Random seed to initialize the internal random number generator")
@@ -169,17 +172,15 @@ impl Config {
                 .arg(Arg::with_name("REALIZATIONS")
                     .long("realizations")
                     .takes_value(true)
-                    .default_value("1000")
+                    .default_value("100")
                     .help("Number of realizations to run")))
             .subcommand(SubCommand::with_name("equil-gd")
                 .about("Generate loadable simulation config quenched to its inherent structure")
                 .arg(Arg::with_name("MAX_DR")
                     .required(true)
-                    .index(1)
                     .default_value("1e-5"))
                 .arg(Arg::with_name("MAX_F")
                     .required(true)
-                    .index(1)
                     .default_value("1e-5")))
             .get_matches();
 
@@ -197,15 +198,18 @@ impl Config {
         let rscale = conv_match(&matches, "RSCALE");
         let vscale = conv_match(&matches, "VSCALE");
 
-        let dryprint = matches.value_of("dryprint").is_some();
+        let dryprint = matches.is_present("dryprint");
         let init_config = matches.value_of("dryprint").map(|path| path.to_string());
 
         let mode: ProgramMode = {
             if let Some(variant_match) = matches.subcommand_matches("variant") {
                 let path = variant_match.value_of("CONFIG").unwrap();
                 let realizations = conv_match(&variant_match, "REALIZATIONS");
-                let variants: VariantConfigs = confy::load_path(path)
+                //let variants: VariantConfigs = confy::load_path(path)
+                let reader = BufReader::new(File::open(path).unwrap());
+                let variants = serde_json::from_reader(reader)
                     .expect("Failed to open variant config!");
+                dbg!(&variants);
                 ProgramMode::Variant(variants, realizations)
             }
             else if let Some(equil_match) = matches.subcommand_matches("equil-gd") {

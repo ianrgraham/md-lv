@@ -1,0 +1,20 @@
+{
+    "configs": [
+        {
+            "rscale": 1.0,
+            "vscale": 4.0
+        },
+        {
+            "rscale": 1.0,
+            "vscale": 16.0
+        },
+        {
+            "rscale": 1.0,
+            "vscale": 64.0
+        },
+        {
+            "rscale": 1.0,
+            "vscale": 256.0
+        }
+    ]
+}

@@ -8,7 +8,7 @@ use std::process;
 use serde::*;
 use ndarray::*;
 
-use crate::config::{Config, ProgramMode, VariantConfigs};
+use crate::config::{Config, ProgramMode, VariantConfigs, VariantConfig};
 
 #[derive(hdf5::H5Type, Clone, PartialEq, Debug)]
 #[repr(C)]
@@ -75,80 +75,98 @@ impl Simulation {
     pub fn new_from_config(config: &Config) -> Simulation {
 
         let seed = config.seed;
-        let num = config.num;
-
-        let sigmas: [f64; 2] = [0.5*config.rscale, 0.7*config.rscale];
         let beta = 1./config.temp;
-
         let dt = config.dt;
         let visc = config.visc;
-        let dim = config.dim;
-        
-        let normal = Normal::new(0.0f64, dt.sqrt()).unwrap();
-
-        let mut b: [f64; 3] = [1., 1., 1.];
-        let mut bh: [f64; 3] = [0.5, 0.5, 0.5];
-
-        // compute l from volume respecting dimension of the box
-        let l = config.len;
-        let l2 = l/2.0;
-        for i in 0..dim {
-            b[i] = l;
-            bh[i] = l2;
-        }
-
-        let mut x = Vec::<[f64; 3]>::with_capacity(num);
-        let mut types = Vec::<usize>::with_capacity(num);
+        let l: f64;
 
         let mut rng = Pcg64::seed_from_u64(seed);
+        let normal = Normal::new(0.0f64, dt.sqrt()).unwrap();
 
-        if dim == 3 {
-            for i in 0..num {
-                x.push([rng.gen::<f64>()*l - l2, 
-                    rng.gen::<f64>()*l - l2, 
-                    rng.gen::<f64>()*l - l2]);
-                if i < num/2 {
-                    types.push(0);
+        let sys = match &config.init_config {
+            Some(path) => {
+                let reader = BufReader::new(File::open(path).unwrap());
+                let old_system: System = serde_json::from_reader(reader).unwrap();
+                l = old_system.b[0];
+                old_system
+            },
+            None => {
+                let num = config.num;
+                let sigmas: [f64; 2] = [0.5*config.rscale, 0.7*config.rscale];
+                let dim = config.dim;
+
+                let mut b: [f64; 3] = [1., 1., 1.];
+                let mut bh: [f64; 3] = [0.5, 0.5, 0.5];
+
+                // compute l from volume respecting dimension of the box
+                l = config.len;
+                let l2 = l/2.0;
+                for i in 0..dim {
+                    b[i] = l;
+                    bh[i] = l2;
+                }
+
+                let mut x = Vec::<[f64; 3]>::with_capacity(num);
+                let mut types = Vec::<usize>::with_capacity(num);
+
+                if dim == 3 {
+                    for i in 0..num {
+                        x.push([rng.gen::<f64>()*l - l2, 
+                            rng.gen::<f64>()*l - l2, 
+                            rng.gen::<f64>()*l - l2]);
+                        if i < num/2 {
+                            types.push(0);
+                        }
+                        else {
+                            types.push(1);
+                        }
+                    }
+                }
+                else if dim == 2 {
+                    for i in 0..(config.num) {
+                        x.push([(rng.gen::<f64>()*l - l2), 
+                        (rng.gen::<f64>()*l - l2), 0.0]);
+                        if i < num/2 {
+                            types.push(0);
+                        }
+                        else {
+                            types.push(1);
+                        }
+                    }
                 }
                 else {
-                    types.push(1);
+                    panic!("Incorrect dimension! Must be 2 or 3!");
                 }
+                let new_system = System{x: x, types: types, b: b, bh: bh, sigmas: sigmas, dim : dim, vscale: config.vscale};
+                new_system
             }
-        }
-        else if dim == 2 {
-            for i in 0..(config.num) {
-                x.push([(rng.gen::<f64>()*l - l2), 
-                (rng.gen::<f64>()*l - l2), 0.0]);
-                if i < num/2 {
-                    types.push(0);
-                }
-                else {
-                    types.push(1);
-                }
-            }
-        }
-        else {
-            panic!("Incorrect dimension! Must be 2 or 3!");
-        }
+        };
+ 
 
-        let coeff: f64 = match dim {
+        let coeff: f64 = match sys.dim {
             2 => std::f64::consts::PI,
             3 => 4.0/3.0*std::f64::consts::PI,
             _ => panic!("Dimensions other than 2 and 3 should have already been ruled out!")
         };
 
-        let vol = l.powi(dim as i32);
-        let part_vol = types.iter().fold(0.0, |acc, idx| acc + coeff*sigmas[*idx].powi(dim as i32));
+        let vol = l.powi(sys.dim as i32);
+        let part_vol = sys.types.iter().fold(0.0, |acc, idx| acc + coeff*sys.sigmas[*idx].powi(sys.dim as i32));
         let phi = part_vol/vol;
 
-        let suffix = match config.mode {
-            ProgramMode::Standard => "xyz",
-            ProgramMode::Variant(_, _) => "h5",
-            ProgramMode::Equilibrate(_, _) => "json" 
+        let path = match config.mode {
+            ProgramMode::Standard => {
+                format!("{}/traj_{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.xyz",
+                    config.dir, config.file_suffix(), phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
+            },
+            ProgramMode::Variant(_, _) => {
+                format!("{}/variants_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.xyz",
+                    config.dir, sys.x.len(), l, config.temp, config.time, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
+            },
+            ProgramMode::Equilibrate(_, _) => {
+                format!("{}/equil_n-{}_l-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.xyz",
+                    config.dir, config.num, l, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
+            }
         };
-
-        let path = format!("{}/traj_{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.{}",
-                config.dir, config.file_suffix(), phi, sigmas[0], sigmas[1], config.vscale, suffix);
 
         if config.dryprint {
             println!("A simulation was intended to be processed with the following name, but the dryprint command was used:\n{}", path);
@@ -176,15 +194,8 @@ impl Simulation {
             }
         };
 
-        let new_system = System{x: x, types: types, b: b, bh: bh, sigmas: sigmas, dim : dim, vscale: config.vscale};
         
-        let sys = match &config.init_config {
-            Some(path) => {
-                let reader = BufReader::new(File::open(path).unwrap());
-                serde_json::from_reader(reader).unwrap()
-            },
-            None => new_system
-        };
+    
 
         let sim = Simulation{sys: sys, rng: rng, normal: normal, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file};
         sim
@@ -457,15 +468,21 @@ impl Simulation {
         }
     }
 
-    pub fn dump_hdf5_meta(&mut self, config: Config) {
+    pub fn dump_hdf5_meta(&mut self, config: &Config, init_x: &Vec<[f64; 3]>, variants: &VariantConfigs) {
         let file = match &self.file {
             OutputWriter::HDF5File(file) => file,
             _ => panic!()
         };
-        let meta = HDF5OutputMeta::new(&config);
-        let meta_dataset = file.new_dataset::<HDF5OutputMeta>().create("meta", 1).unwrap();
+        let group = file.create_group("meta").unwrap();
+        let meta = HDF5OutputMeta::new(config);
+        let meta_dataset = group.new_dataset::<HDF5OutputMeta>().create("meta", 1).unwrap();
         meta_dataset.write(&[meta.clone()]).unwrap();
-        // meta_dataset.write(&[meta.clone()]).unwrap();
+        let x_arr = arr2(&(init_x.to_vec())[..]);
+        let init_x_dataset = group.new_dataset::<f64>().create("init_x", x_arr.shape()).unwrap();
+        init_x_dataset.write(&x_arr).unwrap();
+        let vars = arr1(&(variants.configs.to_vec())[..]);
+        let var_dataset = group.new_dataset::<VariantConfig>().create("variants", vars.shape()).unwrap();
+        var_dataset.write(&vars).unwrap();
     }
 
     pub fn dump_hdf5(
