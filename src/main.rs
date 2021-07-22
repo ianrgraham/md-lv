@@ -43,8 +43,10 @@ fn main() {
 
 
             for real in 0..(*realizations) {
-                if real%10 == 0 {
-                    println!("Realization {}", real);
+                if config.stdout_step.is_some() {
+                    if real%100 == 0 {
+                        println!("Realization {}", real);
+                    }
                 }
                 let mut output_integration_factors =
                     Array2::<f64>::zeros((write_outputs, variants));

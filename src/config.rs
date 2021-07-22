@@ -99,7 +99,7 @@ impl Config {
                 .long("temp")
                 .help("Temperature of the system")
                 .takes_value(true)
-                .default_value("1e-2"))
+                .default_value("0.1"))
             .arg(Arg::with_name("DT")
                 .long("dt")
                 .help("Size of the system timestep")
