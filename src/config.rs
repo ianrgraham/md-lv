@@ -1,19 +1,38 @@
 use clap::{Arg, App, SubCommand};
 use std::str::FromStr;
-use serde::{Serialize, Deserialize};
+use serde::*;
 
+
+pub enum ProgramMode {
+    Standard,
+    Variant(VariantConfigs, usize),
+    Equilibrate(f64, f64)
+}
 
 #[derive(Serialize, Deserialize)]
-struct MyConfig {
-    version: u8,
-    api_key: String,
+pub struct VariantConfig {
+    pub rscale: f64,
+    pub vscale: f64
 }
 
-/// `MyConfig` implements `Default`
-impl ::std::default::Default for MyConfig {
-    fn default() -> Self { Self { version: 0, api_key: "".into() } }
+#[derive(Serialize, Deserialize)]
+pub struct VariantConfigs {
+    pub configs: Vec<VariantConfig>
 }
 
+impl VariantConfigs {
+    pub fn len(&self) -> usize {
+        self.configs.len()
+    }
+}
+
+impl ::std::default::Default for VariantConfig {
+    fn default() -> Self { panic!(); }  // PANIC!
+}
+
+impl ::std::default::Default for VariantConfigs {
+    fn default() -> Self { panic!(); }  // PANIC!
+}
 
 pub struct Config {
     pub num: usize,
@@ -25,12 +44,14 @@ pub struct Config {
     pub dt: f64,
     pub visc: f64,
     pub write_step: usize,
-    pub stdout_step: usize,
+    pub stdout_step: Option<usize>,
     pub seed: u64,
     pub dir: String,
     pub dryprint: bool,
     pub rscale: f64,
-    pub vscale: f64
+    pub vscale: f64,
+    pub mode: ProgramMode,
+    pub init_config: Option<String>
 }
 
 // convert matches to corresponding generic types, panic if there is an issue
@@ -38,6 +59,16 @@ fn conv_match<T>(matches: &clap::ArgMatches, tag: &str) -> T
     where T: FromStr, <T as std::str::FromStr>::Err : std::fmt::Debug  {
     let value = matches.value_of(tag).unwrap();
     FromStr::from_str(value).expect("Failed to convert &str to type T")
+}
+
+// convert matches to corresponding generic types, panic if there is an issue
+fn conv_optional_match<T>(matches: &clap::ArgMatches, tag: &str) -> Option<T>
+    where T: FromStr, <T as std::str::FromStr>::Err : std::fmt::Debug  {
+    let value = match matches.value_of(tag) {
+        Some(value) => value,
+        None => return None
+    };
+    Some(FromStr::from_str(value).expect("Failed to convert &str to type T"))
 }
 
 impl Config {
@@ -115,23 +146,41 @@ impl Config {
                 .short("i")
                 .long("stdout-time")
                 .help("Time between terminal writes")
-                .takes_value(true)
-                .default_value("100.0"))
+                .takes_value(true))
+            .arg(Arg::with_name("INIT_CONFIG")
+                .long("init-config")
+                .help("JSON config file initializing the system state.
+                    Will assert that config is valid")
+                .takes_value(true))
             .arg(Arg::with_name("SEED")
                 .long("seed")
                 .help("Random seed to initialize the internal random number generator")
                 .takes_value(true)
                 .default_value("0"))
-            .arg(Arg::with_name("OUTFORMAT")
-                .long("out-format")
-                .help("Format of the simulation output")
-                .possible_values(&["xyz", "hdf"])
-                .takes_value(true)
-                .default_value("xyz"))
-            .subcommand(SubCommand::with_name("dryprint")
-                .about("Used to print out simulation config without running md"))
-            .subcommand(SubCommand::with_name("bias")
-                .about("Used to print out simulation config without running md"))
+            .arg(Arg::with_name("dryprint")
+                .long("dryprint")
+                .help("Print out simulation config without running md"))
+            .subcommand(SubCommand::with_name("variant")
+                .about("Used to run variant trajectories with differing parameters")
+                .arg(Arg::with_name("CONFIG")
+                    .required(true)
+                    .index(1)
+                    .help("JSON config file containing variant params"))
+                .arg(Arg::with_name("REALIZATIONS")
+                    .long("realizations")
+                    .takes_value(true)
+                    .default_value("1000")
+                    .help("Number of realizations to run")))
+            .subcommand(SubCommand::with_name("equil-gd")
+                .about("Generate loadable simulation config quenched to its inherent structure")
+                .arg(Arg::with_name("MAX_DR")
+                    .required(true)
+                    .index(1)
+                    .default_value("1e-5"))
+                .arg(Arg::with_name("MAX_F")
+                    .required(true)
+                    .index(1)
+                    .default_value("1e-5")))
             .get_matches();
 
         let num = conv_match(&matches, "NUM");
@@ -142,20 +191,43 @@ impl Config {
         let visc = conv_match(&matches, "VISC");
         let dim = conv_match(&matches, "DIM");
         let write_time = conv_match::<f64>(&matches, "OUT");
-        let stdout_time = conv_match::<f64>(&matches, "STDOUT");
+        let stdout_time = conv_optional_match::<f64>(&matches, "STDOUT");
         let seed = conv_match(&matches, "SEED");
         let dir = conv_match(&matches, "DIR");
         let rscale = conv_match(&matches, "RSCALE");
         let vscale = conv_match(&matches, "VSCALE");
-        let dryprint = matches.subcommand_matches("dryprint").is_some();
+
+        let dryprint = matches.value_of("dryprint").is_some();
+        let init_config = matches.value_of("dryprint").map(|path| path.to_string());
+
+        let mode: ProgramMode = {
+            if let Some(variant_match) = matches.subcommand_matches("variant") {
+                let path = variant_match.value_of("CONFIG").unwrap();
+                let realizations = conv_match(&variant_match, "REALIZATIONS");
+                let variants: VariantConfigs = confy::load_path(path)
+                    .expect("Failed to open variant config!");
+                ProgramMode::Variant(variants, realizations)
+            }
+            else if let Some(equil_match) = matches.subcommand_matches("equil-gd") {
+                let max_dr: f64 = conv_match(&equil_match, "MAX_DR");
+                let max_f: f64 = conv_match(&equil_match, "MAX_F");
+                ProgramMode::Equilibrate(max_dr, max_f)
+            }
+            else {
+                ProgramMode::Standard
+            }
+        };
 
         let step_max = (time/dt).round() as usize;
         let write_step = (write_time/dt).round() as usize;
-        let stdout_step = (stdout_time/dt).round() as usize;
+        let stdout_step = match stdout_time {
+            Some(some_stdout_time) => Some((some_stdout_time/dt).round() as usize),
+            None => None
+        };
 
         Config{num: num, len: len, temp: temp, time: time, step_max: step_max, dt: dt, visc: visc, 
                 dim: dim, write_step: write_step, stdout_step: stdout_step, seed: seed, dir: dir,
-                dryprint: dryprint, rscale: rscale, vscale: vscale}
+                dryprint: dryprint, rscale: rscale, vscale: vscale, mode: mode, init_config: init_config}
     }
 
     // format output file suffix with configuration data

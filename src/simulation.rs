@@ -2,32 +2,77 @@ use rand::prelude::*;
 use rand_pcg::Pcg64;
 use rand::Rng;
 use rand_distr::{Normal, Distribution};
-use std::fs::OpenOptions;
-use std::io::{BufWriter, Write};
-use crate::config::Config;
+use std::fs::{File, OpenOptions};
+use std::io::{BufWriter, Write, BufReader};
 use std::process;
+use serde::*;
+use ndarray::*;
+
+use crate::config::{Config, ProgramMode, VariantConfigs};
+
+#[derive(hdf5::H5Type, Clone, PartialEq, Debug)]
+#[repr(C)]
+pub struct HDF5OutputMeta {
+    num: usize,
+    len: f64,
+    temp: f64,
+    time: f64,
+    dim: usize,
+    visc: f64,
+    seed: u64,
+    rscale: f64,
+    vscale: f64
+}
+
+impl HDF5OutputMeta {
+    
+    fn new(config: &Config) -> HDF5OutputMeta {
+        HDF5OutputMeta{
+            num: config.num, len: config.len, dim: config.dim, time: config.time, temp: config.temp,
+            visc: config.visc, seed: config.seed, rscale: config.rscale, vscale: config.vscale
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct System {
+    x: Vec<[f64; 3]>,
+    types: Vec<usize>,
+    b: [f64; 3],
+    bh: [f64; 3],
+    sigmas: [f64; 2],
+    dim: usize,
+    vscale: f64
+}
+
+pub enum OutputWriter {
+    XYZBuffer(std::io::BufWriter<std::fs::File>),
+    HDF5File(hdf5::File),
+    JSONFile(std::io::BufWriter<std::fs::File>)
+}
+
+// TODO
+pub enum OutputMetaData {
+    XYZMeta(),
+    HDF5Meta(),
+    JSONMeta()
+}
 
 
 pub struct Simulation {
-    pub x: Vec<[f64; 3]>,
-    pub types: Vec<usize>,
-    pub b: [f64; 3],
-    pub bh: [f64; 3],
-    pub sigmas: [f64; 2],
-    pub rng: rand_pcg::Lcg128Xsl64,
-    pub normal: rand_distr::Normal<f64>,
-    pub dim: usize,
-    pub a_term: f64,  // dt/visc
-    pub b_term: f64,  // (2.0/(visc*beta)).sqrt()
-    pub file: std::io::BufWriter<std::fs::File>,
-    pub config: Config
+    pub sys: System,
+    rng: rand_pcg::Lcg128Xsl64,
+    normal: rand_distr::Normal<f64>,
+    a_term: f64,  // dt/visc
+    b_term: f64,  // (2.0/(visc*beta)).sqrt()
+    pub file: OutputWriter
 }
 
 
 impl Simulation {
 
     // initialize system from Config struct
-    pub fn new_from_config(config: Config) -> Simulation {
+    pub fn new_from_config(config: &Config) -> Simulation {
 
         let seed = config.seed;
         let num = config.num;
@@ -96,28 +141,57 @@ impl Simulation {
         let part_vol = types.iter().fold(0.0, |acc, idx| acc + coeff*sigmas[*idx].powi(dim as i32));
         let phi = part_vol/vol;
 
-        let path = format!("{}/traj_{}_phi-{:.4}_rA-{:.4}_rB-{:.4}.xyz", config.dir, config.file_suffix(), phi, sigmas[0], sigmas[1]);
+        let suffix = match config.mode {
+            ProgramMode::Standard => "xyz",
+            ProgramMode::Variant(_, _) => "h5",
+            ProgramMode::Equilibrate(_, _) => "json" 
+        };
+
+        let path = format!("{}/traj_{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.{}",
+                config.dir, config.file_suffix(), phi, sigmas[0], sigmas[1], config.vscale, suffix);
 
         if config.dryprint {
             println!("A simulation was intended to be processed with the following name, but the dryprint command was used:\n{}", path);
             process::exit(0);
         }
 
-        let file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(path)
-            .unwrap();
+        let file = match config.mode {
+            ProgramMode::Standard => {
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(path)
+                    .unwrap();
+                OutputWriter::XYZBuffer(BufWriter::new(file))
+            },
+            ProgramMode::Variant(_, _) => 
+                OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
+            ProgramMode::Equilibrate(_, _) => {
+                let file = OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .open(path)
+                    .unwrap();
+                OutputWriter::JSONFile(BufWriter::new(file))
+            }
+        };
 
-        let file = BufWriter::new(file);
+        let new_system = System{x: x, types: types, b: b, bh: bh, sigmas: sigmas, dim : dim, vscale: config.vscale};
+        
+        let sys = match &config.init_config {
+            Some(path) => {
+                let reader = BufReader::new(File::open(path).unwrap());
+                serde_json::from_reader(reader).unwrap()
+            },
+            None => new_system
+        };
 
-        let sim = Simulation{x: x, types: types, b: b, bh: bh, rng: rng, normal: normal, sigmas: sigmas, 
-                dim: dim, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file, config: config};
+        let sim = Simulation{sys: sys, rng: rng, normal: normal, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file};
         sim
     }
 
     pub fn f_system_hertz(&mut self) -> Vec<[f64; 3]> {
-        let num = self.x.len();
+        let num = self.sys.x.len();
         let mut comp: f64;
         let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
         for _ in 0..num {
@@ -127,16 +201,17 @@ impl Simulation {
         let mut norm: f64;
         let mut mag: f64;
         let mut sigma: f64;
+        let vscale = self.sys.vscale;
         for i in 0..(num-1) {
             for j in (i+1)..num {
                 dr = self.pbc_vdr_vec(&i, &j);
                 norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
-                sigma = self.sigmas[self.types[i]] + self.sigmas[self.types[j]];
+                sigma = self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]];
                 if norm > sigma {
                     continue;
                 }
-                mag = (self.config.vscale/sigma)*(1.0-norm/sigma).powf(1.5);
-                for k in 0..(self.dim) {
+                mag = (vscale/sigma)*(1.0-norm/sigma).powf(1.5);
+                for k in 0..(self.sys.dim) {
                     comp = mag*dr[k]/norm;
                     f_hertz_all[i][k] += comp;
                     f_hertz_all[j][k] -= comp;
@@ -147,9 +222,60 @@ impl Simulation {
         f_hertz_all
     }
 
+
+    pub fn f_system_hertz_variants(&mut self, variants: &VariantConfigs) -> (Vec<[f64; 3]>, Vec<Vec<[f64; 3]>>) {
+        let num = self.sys.x.len();
+        let variant_num = variants.len();
+        let mut comp: f64;
+        let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
+        let mut variant_f_hertz = Vec::<Vec<[f64; 3]>>::with_capacity(variant_num);
+        for _ in 0..num {
+            f_hertz_all.push([0.0, 0.0, 0.0]);
+        }
+        for _ in 0..variant_num {
+            variant_f_hertz.push(f_hertz_all.to_vec());
+        }
+        let mut dr: [f64; 3];
+        let mut norm: f64;
+        let mut mag: f64;
+        let mut sigma: f64;
+        let vscale = self.sys.vscale;
+        for i in 0..(num-1) {
+            for j in (i+1)..num {
+                dr = self.pbc_vdr_vec(&i, &j);
+                unsafe {
+                    norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
+                        + dr.get_unchecked(1)*dr.get_unchecked(1)
+                        + dr.get_unchecked(2)*dr.get_unchecked(2)
+                    ).sqrt();
+                }
+                sigma = self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]];
+
+                mag = (vscale/sigma)*((1.0-norm/sigma).max(0.0)).powf(1.5);
+                for k in 0..(self.sys.dim) {
+                    comp = mag*dr[k]/norm;
+                    f_hertz_all[i][k] += comp;
+                    f_hertz_all[j][k] -= comp;
+                }
+                for (l, var) in variants.configs.iter().enumerate() {
+                    let tmp_sigma = sigma*var.rscale;
+                    let tmp_vscale = vscale*var.vscale;
+                    mag = (tmp_vscale/tmp_sigma)*((1.0-norm/tmp_sigma).max(0.0)).powf(1.5);
+                    for k in 0..(self.sys.dim) {
+                        comp = mag*dr[k]/norm;
+                        variant_f_hertz[l][i][k] += comp;
+                        variant_f_hertz[l][j][k] -= comp;
+                    }
+                }
+            }
+
+        }
+        (f_hertz_all, variant_f_hertz)
+    }
+
     // calculate forces with different sigma
-    pub fn f_system_hertz_scale_sigma(&mut self, scale: &f64) -> Vec<[f64; 3]> {
-        let num = self.x.len();
+    pub fn f_system_hertz_rescale(&mut self, rscale: &f64, vscale: &f64) -> Vec<[f64; 3]> {
+        let num = self.sys.x.len();
         let mut comp: f64;
         let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
         for _ in 0..num {
@@ -159,22 +285,22 @@ impl Simulation {
         let mut norm: f64;
         let mut mag: f64;
         let mut sigma: f64;
+        let c_vscale = vscale*self.sys.vscale;
         for i in 0..(num-1) {
             for j in (i+1)..num {
                 dr = self.pbc_vdr_vec(&i, &j);
                 norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
-                sigma = (self.sigmas[self.types[i]] + self.sigmas[self.types[j]])*scale;
+                sigma = (self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]])*rscale;
                 if norm > sigma {
                     continue;
                 }
-                mag = (self.config.vscale/sigma)*(1.0-norm/sigma).powf(1.5);
-                for k in 0..(self.dim) {
+                mag = (c_vscale/sigma)*(1.0-norm/sigma).powf(1.5);
+                for k in 0..(self.sys.dim) {
                     comp = mag*dr[k]/norm;
                     f_hertz_all[i][k] += comp;
                     f_hertz_all[j][k] -= comp;
                 }
             }
-
         }
         f_hertz_all
     }
@@ -185,8 +311,8 @@ impl Simulation {
             w: &Vec<f64>) -> f64 {
         let mut factor = 0.0f64;
         let mut index = 0;
-        for i in 0..self.x.len() {
-            for j in 0..self.dim {
+        for i in 0..self.sys.x.len() {
+            for j in 0..self.sys.dim {
                 factor += force_bias[i][j]*(
                     0.25*self.a_term*force_bias[i][j] + 
                     0.5*self.b_term*w[index]);
@@ -199,17 +325,17 @@ impl Simulation {
     fn pbc_vdr_vec(&self, i: &usize, j: &usize) -> [f64; 3] {
         let mut mdr: [f64; 3] = [0.0, 0.0, 0.0];
         let mut dr: [f64; 3] = [0.0, 0.0, 0.0];
-        let x1 = self.x[*i];
-        let x2 = self.x[*j];
+        let x1 = self.sys.x[*i];
+        let x2 = self.sys.x[*j];
     
-        for i in 0..(self.dim) {
+        for i in 0..(self.sys.dim) {
             dr[i] = x1[i] - x2[i];
     
-            if dr[i] >= self.bh[i] {
-                dr[i] -= self.b[i];
+            if dr[i] >= self.sys.bh[i] {
+                dr[i] -= self.sys.b[i];
             }
-            else if dr[i] < -self.bh[i] {
-                dr[i] += self.b[i];
+            else if dr[i] < -self.sys.bh[i] {
+                dr[i] += self.sys.b[i];
             }
             mdr[i] += dr[i]
         }
@@ -219,36 +345,70 @@ impl Simulation {
     // use internal random number generator to fetch an index
     #[allow(dead_code)]
     fn rand_index(&mut self) -> usize {
-        let i = self.rng.gen_range(0..(self.x.len()));
+        let i = self.rng.gen_range(0..(self.sys.x.len()));
         i
     }
 
     pub fn langevin_step(&mut self) {
         // calculate forces
         let forces = self.f_system_hertz();
-        let dim = self.dim;
+        let dim = self.sys.dim;
 
         // sample normal distribution 
         let w: Vec<f64> = self.normal
             .sample_iter(&mut self.rng)
-            .take(self.dim*self.x.len())
+            .take(self.sys.dim*self.sys.x.len())
             .collect();
         
         // apply Euler–Maruyama method to update postions
         let mut index = 0;
-        for i in 0..(self.x.len()) {
+        for i in 0..(self.sys.x.len()) {
             for k in 0..dim {
-                self.x[i][k] += 
+                self.sys.x[i][k] += 
                     self.a_term*forces[i][k] + self.b_term*w[index];
-                if self.x[i][k] >= self.bh[k] {
-                    self.x[i][k] -= self.b[k]
+                if self.sys.x[i][k] >= self.sys.bh[k] {
+                    self.sys.x[i][k] -= self.sys.b[k]
                 }
-                else if self.x[i][k] < -self.bh[k] {
-                    self.x[i][k] += self.b[k]
+                else if self.sys.x[i][k] < -self.sys.bh[k] {
+                    self.sys.x[i][k] += self.sys.b[k]
                 }
                 index += 1;
             }
         }
+    }
+
+    pub fn gd_step(&mut self) -> (f64, f64) {
+        // calculate forces
+        let forces = self.f_system_hertz();
+        let max_f = forces.iter().fold(
+            0.0_f64,
+            |acc, f| {
+                let x = f[0]*f[0] + f[1]*f[1] + f[2]*f[2];
+                acc.max(x)
+            }
+        ).sqrt();
+        let dim = self.sys.dim;
+        let mut max_dr = 0.0f64;
+        let mut dr = 0.0f64;
+
+        // apply forces
+        for i in 0..(self.sys.x.len()) {
+            for k in 0..dim {
+                let tmp = self.a_term*forces[i][k];
+                dr += tmp*tmp;
+                self.sys.x[i][k] += tmp;
+                if self.sys.x[i][k] >= self.sys.bh[k] {
+                    self.sys.x[i][k] -= self.sys.b[k]
+                }
+                else if self.sys.x[i][k] < -self.sys.bh[k] {
+                    self.sys.x[i][k] += self.sys.b[k]
+                }
+            }
+            if dr > max_dr { max_dr = dr; }
+            dr = 0.0;
+        }
+
+        (max_dr.sqrt(), max_f)
     }
 
     pub fn langevin_step_with_forces_w(
@@ -256,18 +416,18 @@ impl Simulation {
             forces: &Vec<[f64; 3]>, 
             w: &Vec<f64>) {
 
-        let dim = self.dim;
+        let dim = self.sys.dim;
         
         // apply Euler–Maruyama method to update postions
         let mut index = 0;
-        for i in 0..(self.x.len()) {
+        for i in 0..(self.sys.x.len()) {
             for k in 0..dim {
-                self.x[i][k] += self.a_term*forces[i][k] + self.b_term*w[index];
-                if self.x[i][k] >= self.bh[k] {
-                    self.x[i][k] -= self.b[k]
+                self.sys.x[i][k] += self.a_term*forces[i][k] + self.b_term*w[index];
+                if self.sys.x[i][k] >= self.sys.bh[k] {
+                    self.sys.x[i][k] -= self.sys.b[k]
                 }
-                else if self.x[i][k] < -self.bh[k] {
-                    self.x[i][k] += self.b[k]
+                else if self.sys.x[i][k] < -self.sys.bh[k] {
+                    self.sys.x[i][k] += self.sys.b[k]
                 }
                 index += 1;
             }
@@ -276,27 +436,86 @@ impl Simulation {
 
     // dump simulation state to xyz file
     pub fn dump_xyz(&mut self) {
+        match &mut self.file {
+            OutputWriter::XYZBuffer(file) => {
+            
+                writeln!(file, "{}\n", self.sys.x.len()).expect("FILE IO ERROR!");
+                
+                for (x, typeid) in self.sys.x.iter().zip(&self.sys.types) {
+                    writeln!(
+                        file, 
+                        "{} {} {} {} {}", 
+                        if *typeid == 0 { "A" } else { "B" },
+                        x[0], 
+                        x[1], 
+                        x[2],
+                        self.sys.sigmas[*typeid]
+                    ).expect("FILE IO ERROR!");
+                }
+            },
+            _ => panic!("Unexpected!"),
+        }
+    }
 
-        writeln!(self.file, "{}\n", self.x.len()).expect("FILE IO ERROR!");
-    
-        for (x, typeid) in self.x.iter().zip(&self.types) {
-            writeln!(
-                self.file, 
-                "{} {} {} {} {}", 
-                if *typeid == 0 { "A" } else { "B" },
-                x[0], 
-                x[1], 
-                x[2],
-                self.sigmas[*typeid])
-                .expect("FILE IO ERROR!");
+    pub fn dump_hdf5_meta(&mut self, config: Config) {
+        let file = match &self.file {
+            OutputWriter::HDF5File(file) => file,
+            _ => panic!()
+        };
+        let meta = HDF5OutputMeta::new(&config);
+        let meta_dataset = file.new_dataset::<HDF5OutputMeta>().create("meta", 1).unwrap();
+        meta_dataset.write(&[meta.clone()]).unwrap();
+        // meta_dataset.write(&[meta.clone()]).unwrap();
+    }
+
+    pub fn dump_hdf5(
+            &mut self,
+            realization: &usize,
+            time: &Array1<f64>,
+            integration_factors: &Array2<f64>,
+            positions: &Array3<f64>
+    ) {
+        let file = match &self.file {
+            OutputWriter::HDF5File(file) => file,
+            _ => panic!()
+        };
+        let group_name = format!("{}", realization);
+        let group = file.create_group(&group_name[..]).unwrap();
+        let time_data = group.new_dataset::<f64>().create("time", time.shape()).unwrap();
+        time_data.write(time).unwrap();
+        let integration_data = group.new_dataset::<f64>().create("Ib", integration_factors.shape()).unwrap();
+        integration_data.write(integration_factors).unwrap();
+        let position_data = group.new_dataset::<f64>().create("pos", positions.shape()).unwrap();
+        position_data.write(positions).unwrap();
+    }
+
+    pub fn dump_json(&mut self) {
+        let out = serde_json::to_string(&self.sys).unwrap();
+        match &mut self.file {
+            OutputWriter::JSONFile(file) => writeln!(file, "{}", out).expect("FILE IO ERROR!"),
+            _ => panic!()
         }
     }
 
     // return a random vector with the the dimensions of configuration space
     pub fn rand_force_vector(&mut self) -> Vec<f64> {
         let w: Vec<f64> = self.normal.sample_iter(&mut self.rng)
-            .take(self.dim*self.x.len())
+            .take(self.sys.dim*self.sys.x.len())
             .collect();
         w
+    }
+
+    pub fn get_positions(&self) -> Vec<[f64; 3]> {
+        return self.sys.x.to_vec()
+    }
+
+    pub fn set_positions(&mut self, new_x: &Vec<[f64; 3]>) {
+        if self.sys.x.len() != new_x.len() {
+            return
+        }
+        else {
+            self.sys.x = new_x.to_vec();
+            return
+        }
     }
 }
