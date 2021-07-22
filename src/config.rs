@@ -172,16 +172,16 @@ impl Config {
                 .arg(Arg::with_name("REALIZATIONS")
                     .long("realizations")
                     .takes_value(true)
-                    .default_value("100")
+                    .default_value("10000")
                     .help("Number of realizations to run")))
             .subcommand(SubCommand::with_name("equil-gd")
                 .about("Generate loadable simulation config quenched to its inherent structure")
                 .arg(Arg::with_name("MAX_DR")
                     .required(true)
-                    .default_value("1e-5"))
+                    .default_value("1e-10"))
                 .arg(Arg::with_name("MAX_F")
                     .required(true)
-                    .default_value("1e-5")))
+                    .default_value("1e-10")))
             .get_matches();
 
         let num = conv_match(&matches, "NUM");

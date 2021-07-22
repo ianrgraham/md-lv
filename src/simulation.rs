@@ -159,11 +159,11 @@ impl Simulation {
                     config.dir, config.file_suffix(), phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
             },
             ProgramMode::Variant(_, _) => {
-                format!("{}/variants_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.xyz",
+                format!("{}/variants_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.h5",
                     config.dir, sys.x.len(), l, config.temp, config.time, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
             },
             ProgramMode::Equilibrate(_, _) => {
-                format!("{}/equil_n-{}_l-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.xyz",
+                format!("{}/equil_n-{}_l-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.json",
                     config.dir, config.num, l, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
             }
         };

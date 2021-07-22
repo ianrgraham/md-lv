@@ -5,3 +5,5 @@
 /notebooks/sup_images
 /notebooks/.ipynb_checkpoints
 *.xyz
+*.h5
+equil*.json
