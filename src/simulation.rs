@@ -65,7 +65,8 @@ pub struct Simulation {
     normal: rand_distr::Normal<f64>,
     a_term: f64,  // dt/visc
     b_term: f64,  // (2.0/(visc*beta)).sqrt()
-    pub file: OutputWriter
+    pub file: OutputWriter,
+    pub unwrap: Option<Vec<[f64; 3]>>
 }
 
 
@@ -85,9 +86,13 @@ impl Simulation {
 
         let sys = match &config.init_config {
             Some(path) => {
+                println!("{}", path);
                 let reader = BufReader::new(File::open(path).unwrap());
-                let old_system: System = serde_json::from_reader(reader).unwrap();
+                let mut old_system: System = serde_json::from_reader(reader).unwrap();
                 l = old_system.b[0];
+                // replace potential parameters
+                old_system.sigmas = [0.5*config.rscale, 0.7*config.rscale];
+                old_system.vscale = config.vscale;
                 old_system
             },
             None => {
@@ -194,10 +199,16 @@ impl Simulation {
             }
         };
 
-        
-    
+        let unwrap = {
+            if config.unwrap {
+                Some(sys.x.to_vec())
+            }
+            else {
+                None
+            }
+        };
 
-        let sim = Simulation{sys: sys, rng: rng, normal: normal, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file};
+        let sim = Simulation{sys: sys, rng: rng, normal: normal, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file, unwrap: unwrap};
         sim
     }
 
@@ -377,6 +388,10 @@ impl Simulation {
             for k in 0..dim {
                 self.sys.x[i][k] += 
                     self.a_term*forces[i][k] + self.b_term*w[index];
+                if self.unwrap.is_some() {
+                    self.unwrap.as_mut().unwrap()[i][k] += 
+                        self.a_term*forces[i][k] + self.b_term*w[index];
+                }
                 if self.sys.x[i][k] >= self.sys.bh[k] {
                     self.sys.x[i][k] -= self.sys.b[k]
                 }
@@ -408,6 +423,9 @@ impl Simulation {
                 let tmp = self.a_term*forces[i][k];
                 dr += tmp*tmp;
                 self.sys.x[i][k] += tmp;
+                if self.unwrap.is_some() {
+                    self.unwrap.as_mut().unwrap()[i][k] += tmp;
+                }
                 if self.sys.x[i][k] >= self.sys.bh[k] {
                     self.sys.x[i][k] -= self.sys.b[k]
                 }
@@ -434,6 +452,10 @@ impl Simulation {
         for i in 0..(self.sys.x.len()) {
             for k in 0..dim {
                 self.sys.x[i][k] += self.a_term*forces[i][k] + self.b_term*w[index];
+                if self.unwrap.is_some() {
+                    self.unwrap.as_mut().unwrap()[i][k] += 
+                        self.a_term*forces[i][k] + self.b_term*w[index];
+                }
                 if self.sys.x[i][k] >= self.sys.bh[k] {
                     self.sys.x[i][k] -= self.sys.b[k]
                 }
@@ -449,10 +471,19 @@ impl Simulation {
     pub fn dump_xyz(&mut self) {
         match &mut self.file {
             OutputWriter::XYZBuffer(file) => {
+
+                let pos = {
+                    if self.unwrap.is_some() {
+                        self.unwrap.as_ref().unwrap()
+                    }
+                    else {
+                        &self.sys.x
+                    }
+                };
             
-                writeln!(file, "{}\n", self.sys.x.len()).expect("FILE IO ERROR!");
+                writeln!(file, "{}\n", pos.len()).expect("FILE IO ERROR!");
                 
-                for (x, typeid) in self.sys.x.iter().zip(&self.sys.types) {
+                for (x, typeid) in pos.iter().zip(&self.sys.types) {
                     writeln!(
                         file, 
                         "{} {} {} {} {}", 
@@ -506,6 +537,37 @@ impl Simulation {
         position_data.write(positions).unwrap();
     }
 
+    pub fn dump_hdf5_to_group(
+        &mut self,
+        realization: &usize,
+        time: &Array1<f64>,
+        integration_factors: &Array2<f64>,
+        positions: &Array3<f64>,
+        group: &hdf5::Group
+    ) {
+        let group_name = format!("{}", realization);
+        let group = group.create_group(&group_name[..]).unwrap();
+        let time_data = group.new_dataset::<f64>().create("time", time.shape()).unwrap();
+        time_data.write(time).unwrap();
+        let integration_data = group.new_dataset::<f64>().create("Ib", integration_factors.shape()).unwrap();
+        integration_data.write(integration_factors).unwrap();
+        let position_data = group.new_dataset::<f64>().create("pos", positions.shape()).unwrap();
+        position_data.write(positions).unwrap();
+    }
+
+    pub fn create_hdf5_group(
+            &mut self,
+            group_name: String
+    ) -> hdf5::Group {
+        let file = match &self.file {
+            OutputWriter::HDF5File(file) => file,
+            _ => panic!()
+        };
+
+        let group = file.create_group(&group_name[..]).unwrap();
+        group
+    }
+
     pub fn dump_json(&mut self) {
         let out = serde_json::to_string(&self.sys).unwrap();
         match &mut self.file {
@@ -523,7 +585,15 @@ impl Simulation {
     }
 
     pub fn get_positions(&self) -> Vec<[f64; 3]> {
-        return self.sys.x.to_vec()
+        let pos = {
+            if self.unwrap.is_some() {
+                self.unwrap.as_ref().unwrap()
+            }
+            else {
+                &self.sys.x
+            }
+        };
+        return pos.to_vec()
     }
 
     pub fn set_positions(&mut self, new_x: &Vec<[f64; 3]>) {
@@ -532,6 +602,9 @@ impl Simulation {
         }
         else {
             self.sys.x = new_x.to_vec();
+            if self.unwrap.is_some() {
+                *self.unwrap.as_mut().unwrap() = new_x.to_vec();
+            }
             return
         }
     }

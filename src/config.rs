@@ -46,7 +46,8 @@ pub struct Config {
     pub rscale: f64,
     pub vscale: f64,
     pub mode: ProgramMode,
-    pub init_config: Option<String>
+    pub init_config: Option<String>,
+    pub unwrap: bool
 }
 
 // convert matches to corresponding generic types, panic if there is an issue
@@ -142,6 +143,12 @@ impl Config {
                 .help("Time between output dumps")
                 .takes_value(true)
                 .default_value("1.0"))
+            // .arg(Arg::with_name("OUTLOG")
+            //     .short("o")
+            //     .long("out-time-log")
+            //     .help("Time between log-separated output dumps")
+            //     .takes_value(true)
+            //     .conflicts_with("OUT"))
             .arg(Arg::with_name("STDOUT")
                 .short("i")
                 .long("stdout-time")
@@ -160,9 +167,12 @@ impl Config {
                 .help("Random seed to initialize the internal random number generator")
                 .takes_value(true)
                 .default_value("0"))
-            .arg(Arg::with_name("dryprint")
+            .arg(Arg::with_name("DRYPRINT")
                 .long("dryprint")
                 .help("Print out simulation config without running md"))
+            .arg(Arg::with_name("UNWRAP")
+                .long("unwrap")
+                .help("Output unwrapped particle trajectories"))
             .subcommand(SubCommand::with_name("variant")
                 .about("Used to run variant trajectories with differing parameters")
                 .arg(Arg::with_name("CONFIG")
@@ -198,8 +208,9 @@ impl Config {
         let rscale = conv_match(&matches, "RSCALE");
         let vscale = conv_match(&matches, "VSCALE");
 
-        let dryprint = matches.is_present("dryprint");
-        let init_config = matches.value_of("dryprint").map(|path| path.to_string());
+        let dryprint = matches.is_present("DRYPRINT");
+        let unwrap = matches.is_present("UNWRAP");
+        let init_config = matches.value_of("INIT_CONFIG").map(|path| path.to_string());
 
         let mode: ProgramMode = {
             if let Some(variant_match) = matches.subcommand_matches("variant") {
@@ -231,7 +242,8 @@ impl Config {
 
         Config{num: num, len: len, temp: temp, time: time, step_max: step_max, dt: dt, visc: visc, 
                 dim: dim, write_step: write_step, stdout_step: stdout_step, seed: seed, dir: dir,
-                dryprint: dryprint, rscale: rscale, vscale: vscale, mode: mode, init_config: init_config}
+                dryprint: dryprint, rscale: rscale, vscale: vscale, mode: mode, init_config: init_config,
+                unwrap: unwrap}
     }
 
     // format output file suffix with configuration data

@@ -41,6 +41,10 @@ fn main() {
             let write_outputs = config.step_max/config.write_step;
             let variants = variant_config.len();
 
+            sim.dump_hdf5_meta(&config, &init_x, &variant_config);
+
+            let group = sim.create_hdf5_group(String::from("realizations"));
+
 
             for real in 0..(*realizations) {
                 if config.stdout_step.is_some() {
@@ -93,7 +97,7 @@ fn main() {
                     sim.langevin_step_with_forces_w(&forces_a, &w);
 
                 }
-                sim.dump_hdf5(&real, &time, &output_integration_factors, &output_positions);
+                sim.dump_hdf5_to_group(&real, &time, &output_integration_factors, &output_positions, &group);
                 sim.set_positions(&init_x);
             }
         },
@@ -110,7 +114,7 @@ fn main() {
                     }
                 }
 
-                if cur_max_dr < *max_dr && cur_max_f < *max_f {
+                if cur_max_dr/config.dt < *max_dr && cur_max_f < *max_f {
                     break;
                 }
             }
