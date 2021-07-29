@@ -122,3 +122,31 @@ fn main() {
         }
     }
 }
+
+struct KahanAdder {
+    accum: f64,
+    comp: f64
+}
+
+impl KahanAdder {
+
+    fn new() -> Self {
+        KahanAdder{accum: 0.0, comp: 0.0}
+    }
+
+    fn add(&mut self, num: &f64) {
+        let y = num - self.comp;
+        let t = self.accum + y;
+        self.comp = (t - self.accum) - y;
+        self.accum = t;
+    }
+
+    fn result(&self) -> f64 {
+        self.accum.clone()
+    }
+
+    fn reset(&mut self) {
+        self.accum = 0.0;
+        self.comp = 0.0;
+    }
+}
