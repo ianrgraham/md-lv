@@ -54,7 +54,8 @@ fn main() {
                 }
                 let mut output_integration_factors =
                     Array2::<f64>::zeros((write_outputs, variants));
-                let mut integration_factors = Array1::<f64>::zeros(variants);
+                // let mut integration_factors = Array1::<f64>::zeros(variants);
+                let mut integration_factors = vec![KahanAdder::new(); variants];
                 let mut time = Array1::<f64>::zeros(write_outputs);
                 let mut output_positions =
                     Array3::<f64>::zeros((write_outputs, init_x.len(), 3));
@@ -66,8 +67,9 @@ fn main() {
                     // write data to file
                     if step % config.write_step == 0 {
                         time[output_idx] = config.dt*((step-1) as f64);
+                        let factors: Array1<f64> = integration_factors.iter().map(|x| x.result()).collect::<Vec<f64>>().into();
                         output_integration_factors.index_axis_mut(Axis(0), output_idx)
-                            .assign(&integration_factors);
+                            .assign(&factors);
                         let tmp_pos = sim.get_positions();
                         for i in 0..tmp_pos.len() {
                             for j in 0..3 {
@@ -123,6 +125,9 @@ fn main() {
     }
 }
 
+use std::ops::AddAssign;
+
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
 struct KahanAdder {
     accum: f64,
     comp: f64
@@ -145,8 +150,15 @@ impl KahanAdder {
         self.accum.clone()
     }
 
+    #[allow(dead_code)]
     fn reset(&mut self) {
         self.accum = 0.0;
         self.comp = 0.0;
+    }
+}
+
+impl AddAssign<f64> for KahanAdder {
+    fn add_assign(&mut self, other: f64) {
+        self.add(&other);
     }
 }

@@ -66,7 +66,8 @@ pub struct Simulation {
     a_term: f64,  // dt/visc
     b_term: f64,  // (2.0/(visc*beta)).sqrt()
     pub file: OutputWriter,
-    pub unwrap: Option<Vec<[f64; 3]>>
+    unwrap: Option<Vec<[f64; 3]>>,
+    //comp: Option<Vec<[f64; 3]>>
 }
 
 
