@@ -24,6 +24,12 @@ pub struct HDF5OutputMeta {
     vscale: f64
 }
 
+pub struct HDF5VarDatasetCol {
+    time: hdf5::Dataset,
+    position: hdf5::Dataset,
+    integration: hdf5::Dataset
+}
+
 impl HDF5OutputMeta {
     
     fn new(config: &Config) -> HDF5OutputMeta {
@@ -168,6 +174,10 @@ impl Simulation {
                 format!("{}/variants_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.h5",
                     config.dir, sys.x.len(), l, config.temp, config.time, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
             },
+            ProgramMode::GenVariant(_) => {
+                format!("{}/genvariant_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.h5",
+                    config.dir, sys.x.len(), l, config.temp, config.time, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
+            },
             ProgramMode::Equilibrate(_, _) => {
                 format!("{}/equil_n-{}_l-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.json",
                     config.dir, config.num, l, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
@@ -189,6 +199,8 @@ impl Simulation {
                 OutputWriter::XYZBuffer(BufWriter::new(file))
             },
             ProgramMode::Variant(_, _) => 
+                OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
+            ProgramMode::GenVariant(_) => 
                 OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
             ProgramMode::Equilibrate(_, _) => {
                 let file = OpenOptions::new()
@@ -344,6 +356,22 @@ impl Simulation {
         }
         factor
     }
+
+    pub fn integration_factor_gen(
+        &self, 
+        force: &Vec<[f64; 3]>, 
+        w: &Vec<f64>) -> [f64; 2] {
+    let mut factors = [0.0; 2];
+    let mut index = 0;
+    for i in 0..self.sys.x.len() {
+        for j in 0..self.sys.dim {
+            factors[0] += 0.25*self.a_term*force[i][j]*force[i][j];
+            factors[1] += 0.5*self.b_term*w[index]*force[i][j];
+            index += 1;
+        }
+    }
+    factors
+}
 
     fn pbc_vdr_vec(&self, i: &usize, j: &usize) -> [f64; 3] {
         let mut mdr: [f64; 3] = [0.0, 0.0, 0.0];
@@ -517,6 +545,20 @@ impl Simulation {
         var_dataset.write(&vars).unwrap();
     }
 
+    pub fn dump_hdf5_meta_gen(&mut self, config: &Config, init_x: &Vec<[f64; 3]>) {
+        let file = match &self.file {
+            OutputWriter::HDF5File(file) => file,
+            _ => panic!()
+        };
+        let group = file.create_group("meta").unwrap();
+        let meta = HDF5OutputMeta::new(config);
+        let meta_dataset = group.new_dataset::<HDF5OutputMeta>().create("meta", 1).unwrap();
+        meta_dataset.write(&[meta.clone()]).unwrap();
+        let x_arr = arr2(&(init_x.to_vec())[..]);
+        let init_x_dataset = group.new_dataset::<f64>().create("init_x", x_arr.shape()).unwrap();
+        init_x_dataset.write(&x_arr).unwrap();
+    }
+
     pub fn dump_hdf5(
             &mut self,
             realization: &usize,
@@ -554,6 +596,55 @@ impl Simulation {
         integration_data.write(integration_factors).unwrap();
         let position_data = group.new_dataset::<f64>().create("pos", positions.shape()).unwrap();
         position_data.write(positions).unwrap();
+    }
+
+    pub fn create_hdf5_dataset_collection(
+        &mut self,
+        group_name: &str,
+        time_shape: &[usize],
+        pos_shape: &[usize],
+        int_shape: &[usize]
+    ) -> HDF5VarDatasetCol {
+        let file = match &self.file {
+            OutputWriter::HDF5File(file) => file,
+            _ => panic!()
+        };
+        let group = file.create_group(group_name).unwrap();
+        let time = group.new_dataset::<f64>().create("time", time_shape).unwrap();
+        let position = group.new_dataset::<f64>().create("pos", pos_shape).unwrap();
+        let integration = group.new_dataset::<f64>().create("Ib", int_shape).unwrap();
+        HDF5VarDatasetCol{time, position, integration}
+    }
+
+    pub fn dump_hdf5_slices_to_dataset(
+        &mut self,
+        realization: &usize,
+        time: ArrayView1<f64>,
+        integration_factors: ArrayView2<f64>,
+        positions: ArrayView3<f64>,
+        data: &HDF5VarDatasetCol
+    ) {
+        let slice2d = s![*realization,..,..];
+        let slice3d = s![*realization,..,..,..];
+        if *realization == 0 { data.time.write(time).unwrap(); }
+        data.integration.write_slice(integration_factors, slice2d).unwrap();
+        data.position.write_slice(positions, slice3d).unwrap();
+    }
+
+    pub fn dump_hdf5_large_slices_to_dataset(
+        &mut self,
+        start: &usize,
+        end: &usize,
+        time: ArrayView1<f64>,
+        integration_factors: ArrayView3<f64>,
+        positions: ArrayView4<f64>,
+        data: &HDF5VarDatasetCol
+    ) {
+        let slice3d = s![*start..*end,..,..];
+        let slice4d = s![*start..*end,..,..,..];
+        if *start == 0 { data.time.write(time).unwrap(); }
+        data.integration.write_slice(integration_factors, slice3d).unwrap();
+        data.position.write_slice(positions, slice4d).unwrap();
     }
 
     pub fn create_hdf5_group(

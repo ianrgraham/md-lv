@@ -8,6 +8,7 @@ use serde::*;
 pub enum ProgramMode {
     Standard,
     Variant(VariantConfigs, usize),
+    GenVariant(usize),
     Equilibrate(f64, f64)
 }
 
@@ -185,7 +186,14 @@ impl Config {
                 .arg(Arg::with_name("REALIZATIONS")
                     .long("realizations")
                     .takes_value(true)
-                    .default_value("10000")
+                    .default_value("1000000")
+                    .help("Number of realizations to run")))
+            .subcommand(SubCommand::with_name("gen-variant")
+                .about("Used to run generic variant method")
+                .arg(Arg::with_name("REALIZATIONS")
+                    .long("realizations")
+                    .takes_value(true)
+                    .default_value("1000000")
                     .help("Number of realizations to run")))
             .subcommand(SubCommand::with_name("equil-gd")
                 .about("Generate loadable simulation config quenched to its inherent structure")
@@ -230,6 +238,10 @@ impl Config {
                 let max_dr: f64 = conv_match(&equil_match, "MAX_DR");
                 let max_f: f64 = conv_match(&equil_match, "MAX_F");
                 ProgramMode::Equilibrate(max_dr, max_f)
+            }
+            else if let Some(gen_variant_match) = matches.subcommand_matches("gen-variant") {
+                let realizations = conv_match(&gen_variant_match, "REALIZATIONS");
+                ProgramMode::GenVariant(realizations)
             }
             else {
                 ProgramMode::Standard

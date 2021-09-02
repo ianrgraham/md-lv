@@ -1,52 +1,49 @@
-pub struct LangevinSimulation {
-    pub sys: System,
-    pub rng: rand_pcg::Lcg128Xsl64,
-    pub normal: rand_distr::Normal<f64>,
-    pub integration_terms: [f64; 2],
-    pub file: std::io::BufWriter<std::fs::File>,
-    pub interaction: Box<dyn Interaction<Params = dyn InteractionParameters>>
+use ndarray::*;
+use serde::*;
+
+pub struct LangevinSimulation<F, T>
+    where 
+        for<'a> T: Interaction<'a> {
+    sys: System,
+    rng: rand_pcg::Lcg128Xsl64,
+    normal: rand_distr::Normal<f64>,
+    file: F,
+    interaction: T
 }
 
 pub struct System {
-    pub pos: Vec<[f64; 3]>,
-    pub types: Vec<usize>,
-    pub b: [f64; 3],
-    pub bh: [f64; 3],
-    pub species: Vec<u8>,
-    pub dim: usize
+    pos: Array2<f64>,
+    forces: Array2<f64>,
+    types: Array1<u8>,
+    b: [f64; 3],
+    bh: [f64; 3],
+    dim: usize
 }
 
-pub trait InteractionParameters {}
-
-pub trait Interaction {
-    type Params: InteractionParameters;
-    // fn sys_potential(&self, sys: &System) -> f64;
-    // fn sys_force(&self, sys: &System) -> Vec<f64>;
-    fn potential(&self, dr: f64) -> f64;
-    fn force(&self, dr: f64, vdr: [f64; 3]) -> [f64; 3];
-}
-
-pub struct HertzianParameters {
+pub trait Interaction<'t>: Serialize + Deserialize<'t> {
+    fn sys_potential(&self, sys: &System) -> f64;
+    fn sys_forces<'a>(&self, sys: &'a mut System) -> ArrayView2<'a, f64>;
+    fn len(&self) -> usize;
 
 }
 
-impl InteractionParameters for HertzianParameters {}
-
-pub struct HertzianInteraction {
-    pub params: HertzianParameters
+#[derive(Serialize, Deserialize)]
+struct BidisperseHertzian {
+    sigmas: [f64; 2],
+    coeff: f64
 }
 
-impl Interaction for HertzianInteraction {
+impl<'t> Interaction<'t> for BidisperseHertzian {
 
-    type Params = HertzianParameters;
-
-    fn potential(&self, dr: f64) -> f64 {
-        todo!();
+    fn sys_potential(&self, sys: &System) -> f64 {
         1.0
     }
 
-    fn force(&self, dr: f64, vdr: [f64; 3]) -> [f64; 3] {
-        todo!();
-        [1.0, 1.0, 1.0]
+    fn sys_forces<'a>(&self, sys: &'a mut System) -> ArrayView2<'a, f64> {
+        sys.forces.view()
+    }
+
+    fn len(&self) -> usize {
+        2
     }
 }
