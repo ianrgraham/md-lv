@@ -106,7 +106,7 @@ impl Config {
                 .long("dt")
                 .help("Size of the system timestep")
                 .takes_value(true)
-                .default_value("1e-5"))
+                .default_value("1e-3"))
             .arg(Arg::with_name("VISC")
                 .long("visc")
                 .help("Viscous drag coefficient on the particles of the system")

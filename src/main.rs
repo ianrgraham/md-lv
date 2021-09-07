@@ -121,6 +121,7 @@ fn main() {
             let init_x = sim.get_positions();
 
             let write_outputs = config.step_max/config.write_step;
+            let chunk_size: usize = 1000;
 
             sim.dump_hdf5_meta_gen(&config, &init_x);
 
@@ -131,20 +132,35 @@ fn main() {
                 &[*realizations, write_outputs, init_x.len(), 3]
             );
 
+            let mut start = 0;
+            let mut end = 0;
+            let mut dump = false;
+
 
             for real in 0..(*realizations) {
+
+                let chunk_idx = real%chunk_size;
+                if chunk_idx == 0 {
+                    start = real;
+                    dump = false;
+                }
+                else if chunk_idx == chunk_size - 1 || real == realizations - 1 {
+                    end = real + 1;
+                    dump = true;
+                }
+
                 if config.stdout_step.is_some() {
                     if real%1000 == 0 {
                         println!("Realization {}", real);
                     }
                 }
                 let mut output_integration_factors =
-                    Array2::<f64>::zeros((write_outputs, 2));
+                    Array3::<f64>::zeros((chunk_size, write_outputs, 2));
                 // let mut integration_factors = Array1::<f64>::zeros(variants);
                 let mut integration_factors = vec![KahanAdder::new(); 2];
                 let mut time = Array1::<f64>::zeros(write_outputs);
                 let mut output_positions =
-                    Array3::<f64>::zeros((write_outputs, init_x.len(), 3));
+                    Array4::<f64>::zeros((chunk_size, write_outputs, init_x.len(), 3));
 
                 let mut output_idx: usize = 0;
 
@@ -154,12 +170,13 @@ fn main() {
                     if step % config.write_step == 0 {
                         time[output_idx] = config.dt*((step-1) as f64);
                         let factors: Array1<f64> = integration_factors.iter().map(|x| x.result()).collect::<Vec<f64>>().into();
-                        output_integration_factors.index_axis_mut(Axis(0), output_idx)
+                        output_integration_factors.index_axis_mut(Axis(0), chunk_idx)
+                            .index_axis_mut(Axis(0), output_idx)
                             .assign(&factors);
                         let tmp_pos = sim.get_positions();
                         for i in 0..tmp_pos.len() {
                             for j in 0..3 {
-                                output_positions[[output_idx, i, j]] = tmp_pos[i][j];
+                                output_positions[[chunk_idx, output_idx, i, j]] = tmp_pos[i][j];
                             }
                         }
                         output_idx += 1;
@@ -188,13 +205,17 @@ fn main() {
 
                 }
                 // sim.dump_hdf5_to_group(&real, &time, &output_integration_factors, &output_positions, &group);
-                sim.dump_hdf5_slices_to_dataset(
-                    &real,
-                    time.view(),
-                    output_integration_factors.view(),
-                    output_positions.view(),
-                    &data_col
-                );
+                if dump {
+                    let out_slice = Slice::from(0..=chunk_idx);
+                    sim.dump_hdf5_large_slices_to_dataset(
+                        &start,
+                        &end,
+                        time.view(),
+                        output_integration_factors.slice_axis(Axis(0), out_slice),
+                        output_positions.slice_axis(Axis(0), out_slice),
+                        &data_col
+                    );
+                }
                 sim.set_positions(&init_x);
             }
         },

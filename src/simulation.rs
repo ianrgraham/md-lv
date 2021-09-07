@@ -602,8 +602,8 @@ impl Simulation {
         &mut self,
         group_name: &str,
         time_shape: &[usize],
-        pos_shape: &[usize],
-        int_shape: &[usize]
+        int_shape: &[usize],
+        pos_shape: &[usize]
     ) -> HDF5VarDatasetCol {
         let file = match &self.file {
             OutputWriter::HDF5File(file) => file,
@@ -611,8 +611,8 @@ impl Simulation {
         };
         let group = file.create_group(group_name).unwrap();
         let time = group.new_dataset::<f64>().create("time", time_shape).unwrap();
-        let position = group.new_dataset::<f64>().create("pos", pos_shape).unwrap();
         let integration = group.new_dataset::<f64>().create("Ib", int_shape).unwrap();
+        let position = group.new_dataset::<f64>().create("pos", pos_shape).unwrap();
         HDF5VarDatasetCol{time, position, integration}
     }
 
