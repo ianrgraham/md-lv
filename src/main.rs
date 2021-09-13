@@ -136,6 +136,12 @@ fn main() {
             let mut end = 0;
             let mut dump = false;
 
+            let mut output_integration_factors =
+                Array3::<f64>::zeros((chunk_size, write_outputs, 2));
+            let mut time = Array1::<f64>::zeros(write_outputs);
+            let mut output_positions =
+                Array4::<f64>::zeros((chunk_size, write_outputs, init_x.len(), 3));
+
 
             for real in 0..(*realizations) {
 
@@ -154,21 +160,15 @@ fn main() {
                         println!("Realization {}", real);
                     }
                 }
-                let mut output_integration_factors =
-                    Array3::<f64>::zeros((chunk_size, write_outputs, 2));
-                // let mut integration_factors = Array1::<f64>::zeros(variants);
-                let mut integration_factors = vec![KahanAdder::new(); 2];
-                let mut time = Array1::<f64>::zeros(write_outputs);
-                let mut output_positions =
-                    Array4::<f64>::zeros((chunk_size, write_outputs, init_x.len(), 3));
 
+                let mut integration_factors = [KahanAdder::new(); 2];
                 let mut output_idx: usize = 0;
 
                 for step in 1..(config.step_max+1) {
 
                     // write data to file
                     if step % config.write_step == 0 {
-                        time[output_idx] = config.dt*((step-1) as f64);
+                        if real == 0 { time[output_idx] = config.dt*((step-1) as f64); }
                         let factors: Array1<f64> = integration_factors.iter().map(|x| x.result()).collect::<Vec<f64>>().into();
                         output_integration_factors.index_axis_mut(Axis(0), chunk_idx)
                             .index_axis_mut(Axis(0), output_idx)
@@ -206,7 +206,7 @@ fn main() {
                 }
                 // sim.dump_hdf5_to_group(&real, &time, &output_integration_factors, &output_positions, &group);
                 if dump {
-                    let out_slice = Slice::from(0..=chunk_idx);
+                    let out_slice = Slice::from(..=chunk_idx);
                     sim.dump_hdf5_large_slices_to_dataset(
                         &start,
                         &end,

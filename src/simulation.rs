@@ -193,6 +193,7 @@ impl Simulation {
             ProgramMode::Standard => {
                 let file = OpenOptions::new()
                     .write(true)
+                    .truncate(true)
                     .create(true)
                     .open(path)
                     .unwrap();
@@ -205,6 +206,7 @@ impl Simulation {
             ProgramMode::Equilibrate(_, _) => {
                 let file = OpenOptions::new()
                     .write(true)
+                    .truncate(true)
                     .create(true)
                     .open(path)
                     .unwrap();

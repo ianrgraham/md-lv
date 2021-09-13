@@ -4,7 +4,7 @@ import itertools
 
 num = int(sys.argv[1])
 
-temps = [0.1, 0.4, 0.01, 0.04, 0.001]
+temps = [0.1, 0.04, 0.01, 0.004, 0.001]
 time = 100.0
 
 

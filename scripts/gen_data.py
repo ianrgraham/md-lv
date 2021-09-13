@@ -4,8 +4,8 @@ import itertools
 
 num = int(sys.argv[1])
 
-temps = [0.1, 0.4, 0.01, 0.04, 0.001]
-times = [1.0, 10.0, 100.0]
+temps = [0.1, 0.04, 0.01, 0.004, 0.001]
+times = [1.0, 10.0]
 
 stuff = list(itertools.product(temps, times))
 temp, time = stuff[num-1]
