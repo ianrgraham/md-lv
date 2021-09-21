@@ -30,6 +30,11 @@ pub struct HDF5VarDatasetCol {
     integration: hdf5::Dataset
 }
 
+// pub enum GenVarDataset {
+//     NoCalc(HDF5VarDatasetCol),
+//     Calc(hdf5::Group, Vec<hdf5::Dataset>)
+// }
+
 impl HDF5OutputMeta {
     
     fn new(config: &Config) -> HDF5OutputMeta {
@@ -38,6 +43,11 @@ impl HDF5OutputMeta {
             visc: config.visc, seed: config.seed, rscale: config.rscale, vscale: config.vscale
         }
     }
+}
+
+enum Potential {
+    Hertzian,
+    KobAnderson
 }
 
 #[derive(Serialize, Deserialize)]
@@ -57,14 +67,6 @@ pub enum OutputWriter {
     JSONFile(std::io::BufWriter<std::fs::File>)
 }
 
-// TODO
-pub enum OutputMetaData {
-    XYZMeta(),
-    HDF5Meta(),
-    JSONMeta()
-}
-
-
 pub struct Simulation {
     pub sys: System,
     rng: rand_pcg::Lcg128Xsl64,
@@ -73,6 +75,7 @@ pub struct Simulation {
     b_term: f64,  // (2.0/(visc*beta)).sqrt()
     pub file: OutputWriter,
     unwrap: Option<Vec<[f64; 3]>>,
+    pub beta: f64
     //comp: Option<Vec<[f64; 3]>>
 }
 
@@ -174,7 +177,7 @@ impl Simulation {
                 format!("{}/variants_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.h5",
                     config.dir, sys.x.len(), l, config.temp, config.time, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
             },
-            ProgramMode::GenVariant(_) => {
+            ProgramMode::GenVariant(_, _) => {
                 format!("{}/genvariant_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.h5",
                     config.dir, sys.x.len(), l, config.temp, config.time, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
             },
@@ -201,7 +204,7 @@ impl Simulation {
             },
             ProgramMode::Variant(_, _) => 
                 OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
-            ProgramMode::GenVariant(_) => 
+            ProgramMode::GenVariant(_, _) => 
                 OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
             ProgramMode::Equilibrate(_, _) => {
                 let file = OpenOptions::new()
@@ -223,7 +226,7 @@ impl Simulation {
             }
         };
 
-        let sim = Simulation{sys: sys, rng: rng, normal: normal, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file: file, unwrap: unwrap};
+        let sim = Simulation{sys, rng, normal, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file, unwrap, beta};
         sim
     }
 
@@ -616,6 +619,49 @@ impl Simulation {
         let integration = group.new_dataset::<f64>().create("Ib", int_shape).unwrap();
         let position = group.new_dataset::<f64>().create("pos", pos_shape).unwrap();
         HDF5VarDatasetCol{time, position, integration}
+    }
+
+    pub fn create_gen_hdf5_dataset_collection(
+        &mut self,
+        group_name: &str,
+        data_names: &[&str],
+        data_shapes: &[Vec<usize>]
+    ) -> (hdf5::Group, Vec<hdf5::Dataset>) {
+        let file = match &self.file {
+            OutputWriter::HDF5File(file) => file,
+            _ => panic!()
+        };
+        let group = file.create_group(group_name).unwrap();
+        let mut datasets = Vec::with_capacity(data_names.len());
+        for (name, shape) in data_names.iter().zip(data_shapes) {
+            datasets.push(group.new_dataset::<f64>().create(name, shape).unwrap());
+        }
+        (group, datasets)
+    }
+
+    pub fn dump_gen_hdf5_dataset_collection(
+        &mut self,
+        data_col: &Vec<hdf5::Dataset>,
+        time_data: ArrayView1<f64>,
+        norm_data: ArrayView2<f64>,
+        msd_data: &Option<Array2<f64>>,
+        pos_data: &Option<Array4<f64>>,
+        q_data: &Option<Array3<f64>>
+    ) {
+        data_col[0].write(time_data).unwrap();
+        data_col[1].write(norm_data).unwrap();
+        let mut idx = 2;
+        if let Some(data) = msd_data {
+            data_col[idx].write(data).unwrap();
+            idx += 1;
+        }
+        if let Some(data) = pos_data {
+            data_col[idx].write(data).unwrap();
+            idx += 1;
+        }
+        if let Some(data) = q_data {
+            data_col[idx].write(data).unwrap();
+        }
     }
 
     pub fn dump_hdf5_slices_to_dataset(

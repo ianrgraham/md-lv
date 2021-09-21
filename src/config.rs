@@ -8,7 +8,7 @@ use serde::*;
 pub enum ProgramMode {
     Standard,
     Variant(VariantConfigs, usize),
-    GenVariant(usize),
+    GenVariant(usize, Option<(Vec<f64>, bool, bool, Option<Vec<f64>>)>),
     Equilibrate(f64, f64)
 }
 
@@ -155,6 +155,12 @@ impl Config {
                 .long("stdout-time")
                 .help("Time between terminal writes")
                 .takes_value(true))
+            .arg(Arg::with_name("POT")
+                .long("potential")
+                .help("Output directory of data dumps")
+                .takes_value(true)
+                .default_value("hertzian")
+                .possible_values(&["hertzian", "kob-anderson"]))
             .arg(Arg::with_name("INIT_CONFIG")
                 .long("init-config")
                 .help("JSON config file initializing the system state. \
@@ -194,7 +200,26 @@ impl Config {
                     .long("realizations")
                     .takes_value(true)
                     .default_value("1000000")
-                    .help("Number of realizations to run")))
+                    .help("Number of realizations to run"))
+                .arg(Arg::with_name("DELVAR")
+                    .long("del-var")
+                    .use_delimiter(true)
+                    .takes_value(true)
+                    .help("Optional variants to compute"))
+                .arg(Arg::with_name("CALCMSD")
+                    .requires("DELVAR")
+                    .long("calc-msd")
+                    .help("Calculate biased MSD"))
+                .arg(Arg::with_name("CALCPOS")
+                    .requires("DELVAR")
+                    .long("calc-pos")
+                    .help("Calculate biased particle trajectory for each system"))
+                .arg(Arg::with_name("CALCQ")
+                    .requires("DELVAR")
+                    .long("calc-q")
+                    .use_delimiter(true)
+                    .takes_value(true)
+                    .help("Calculate biased Q(a)")))
             .subcommand(SubCommand::with_name("equil-gd")
                 .about("Generate loadable simulation config quenched to its inherent structure")
                 .arg(Arg::with_name("MAX_DR")
@@ -241,7 +266,20 @@ impl Config {
             }
             else if let Some(gen_variant_match) = matches.subcommand_matches("gen-variant") {
                 let realizations = conv_match(&gen_variant_match, "REALIZATIONS");
-                ProgramMode::GenVariant(realizations)
+                let delvar = gen_variant_match.values_of("DELVAR")
+                    .and_then(|vals| Some(vals.map(|e| FromStr::from_str(e).unwrap()).collect::<Vec<f64>>()));
+                if delvar.is_some() {
+                    let msd = gen_variant_match.is_present("CALCMSD");
+                    let pos = gen_variant_match.is_present("CALCPOS");
+                    let calc_q = gen_variant_match.values_of("CALCQ")
+                        .and_then(|vals| Some(vals.map(|e| FromStr::from_str(e).unwrap()).collect::<Vec<f64>>()));
+                    if !(msd || pos || calc_q.is_some()) {
+                        panic!("No computable quantities specified!");
+                    }
+                    ProgramMode::GenVariant(realizations, Some((delvar.unwrap(), msd, pos, calc_q)))
+                }
+                else { ProgramMode::GenVariant(realizations, None) }
+                
             }
             else {
                 ProgramMode::Standard
