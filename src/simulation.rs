@@ -10,6 +10,8 @@ use ndarray::*;
 
 use crate::config::{Config, ProgramMode, VariantConfigs, VariantConfig};
 
+use Potential::*;
+
 #[derive(hdf5::H5Type, Clone, PartialEq, Debug)]
 #[repr(C)]
 pub struct HDF5OutputMeta {
@@ -30,11 +32,6 @@ pub struct HDF5VarDatasetCol {
     integration: hdf5::Dataset
 }
 
-// pub enum GenVarDataset {
-//     NoCalc(HDF5VarDatasetCol),
-//     Calc(hdf5::Group, Vec<hdf5::Dataset>)
-// }
-
 impl HDF5OutputMeta {
     
     fn new(config: &Config) -> HDF5OutputMeta {
@@ -45,9 +42,28 @@ impl HDF5OutputMeta {
     }
 }
 
-enum Potential {
-    Hertzian,
-    KobAnderson
+#[derive(Copy, Clone, Serialize, Deserialize)]
+pub enum Potential {
+    Hertz,
+    LJ
+}
+
+impl Potential {
+
+    fn from_str(string: &str) -> Option<Self> {
+        match string {
+            "hertz" => { Some(Hertz) },
+            "lj" => { Some(LJ) },
+            _ => { None }
+        }
+    }
+
+    fn to_str(&self) -> String {
+        match self {
+            Hertz => { String::from("hertz") },
+            LJ => { String::from("lj")}
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -56,9 +72,10 @@ pub struct System {
     types: Vec<usize>,
     b: [f64; 3],
     bh: [f64; 3],
-    sigmas: [f64; 2],
+    sigmas: Box<[f64]>,
     dim: usize,
-    vscale: f64
+    vscale: f64,
+    potential: Potential
 }
 
 pub enum OutputWriter {
@@ -101,13 +118,21 @@ impl Simulation {
                 let mut old_system: System = serde_json::from_reader(reader).unwrap();
                 l = old_system.b[0];
                 // replace potential parameters
-                old_system.sigmas = [0.5*config.rscale, 0.7*config.rscale];
+                old_system.sigmas = match config.potential {
+                    Potential::Hertz => {
+                        Box::new([0.5*config.rscale, 0.7*config.rscale])
+                    },
+                    Potential::LJ => {
+                        let rscale = config.rscale;
+                        Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
+                    }
+                };
                 old_system.vscale = config.vscale;
                 old_system
             },
             None => {
                 let num = config.num;
-                let sigmas: [f64; 2] = [0.5*config.rscale, 0.7*config.rscale];
+                let sigmas: Box<[f64]> = Box::new([0.5*config.rscale, 0.7*config.rscale]);
                 let dim = config.dim;
 
                 let mut b: [f64; 3] = [1., 1., 1.];
@@ -152,8 +177,7 @@ impl Simulation {
                 else {
                     panic!("Incorrect dimension! Must be 2 or 3!");
                 }
-                let new_system = System{x: x, types: types, b: b, bh: bh, sigmas: sigmas, dim : dim, vscale: config.vscale};
-                new_system
+                System{x, types, b, bh, sigmas, dim, vscale: config.vscale, potential: config.potential}
             }
         };
  
@@ -230,6 +254,41 @@ impl Simulation {
         sim
     }
 
+    fn force(&self, norm: f64, i: usize, j: usize) -> Option<f64> {
+        match self.sys.potential {
+            Potential::Hertz => {
+                let sigma = self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]];
+                if norm > sigma {
+                    None
+                }
+                else {
+                    let vscale = self.sys.vscale;
+                    let mag = (vscale/sigma)*(1.0-norm/sigma).powf(1.5);
+                    Some(mag)
+                }
+            }
+            Potential::LJ => {
+                // sys.sigmas has data for both the sigmas, and the relative potential strengths
+                let pair =  self.sys.types[i] + self.sys.types[j];
+                let sigma = self.sys.sigmas[pair];
+                if norm > sigma*2.5 {
+                    None
+                }
+                else {
+                    let epsilon = self.sys.sigmas[pair + 3];
+                    let vscale = self.sys.vscale;
+                    let norm_inv = 1.0/norm;
+                    let x = sigma*norm_inv;
+                    let x2 = x*x;
+                    let x4 = x2*x2;
+                    let x6 = x2*x4;
+                    let mag = vscale*epsilon*(12.0*x6*x6*norm_inv - 6.0*x6*norm_inv);
+                    Some(mag)
+                }
+            }
+        }
+    }
+
     pub fn f_system_hertz(&mut self) -> Vec<[f64; 3]> {
         let num = self.sys.x.len();
         let mut comp: f64;
@@ -244,8 +303,13 @@ impl Simulation {
         let vscale = self.sys.vscale;
         for i in 0..(num-1) {
             for j in (i+1)..num {
-                dr = self.pbc_vdr_vec(&i, &j);
-                norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
+                dr = self.pbc_vdr_vec(i, j);
+                unsafe {
+                    norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
+                        + dr.get_unchecked(1)*dr.get_unchecked(1)
+                        + dr.get_unchecked(2)*dr.get_unchecked(2)
+                    ).sqrt();
+                }
                 sigma = self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]];
                 if norm > sigma {
                     continue;
@@ -257,7 +321,36 @@ impl Simulation {
                     f_hertz_all[j][k] -= comp;
                 }
             }
+        }
+        f_hertz_all
+    }
 
+    pub fn f_system(&mut self) -> Vec<[f64; 3]> {
+        let num = self.sys.x.len();
+        let mut comp: f64;
+        let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
+        for _ in 0..num {
+            f_hertz_all.push([0.0, 0.0, 0.0]);
+        }
+        let mut dr: [f64; 3];
+        let mut norm: f64;
+        for i in 0..(num-1) {
+            for j in (i+1)..num {
+                dr = self.pbc_vdr_vec(i, j);
+                unsafe {
+                    norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
+                        + dr.get_unchecked(1)*dr.get_unchecked(1)
+                        + dr.get_unchecked(2)*dr.get_unchecked(2)
+                    ).sqrt();
+                }
+                if let Some(mag) = self.force(norm, i, j) {
+                    for k in 0..(self.sys.dim) {
+                        comp = mag*dr[k]/norm;
+                        f_hertz_all[i][k] += comp;
+                        f_hertz_all[j][k] -= comp;
+                    }
+                }
+            }
         }
         f_hertz_all
     }
@@ -282,7 +375,7 @@ impl Simulation {
         let vscale = self.sys.vscale;
         for i in 0..(num-1) {
             for j in (i+1)..num {
-                dr = self.pbc_vdr_vec(&i, &j);
+                dr = self.pbc_vdr_vec(i, j);
                 unsafe {
                     norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
                         + dr.get_unchecked(1)*dr.get_unchecked(1)
@@ -314,7 +407,7 @@ impl Simulation {
     }
 
     // calculate forces with different sigma
-    pub fn f_system_hertz_rescale(&mut self, rscale: &f64, vscale: &f64) -> Vec<[f64; 3]> {
+    pub fn f_system_hertz_rescale(&mut self, rscale: f64, vscale: f64) -> Vec<[f64; 3]> {
         let num = self.sys.x.len();
         let mut comp: f64;
         let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
@@ -328,8 +421,13 @@ impl Simulation {
         let c_vscale = vscale*self.sys.vscale;
         for i in 0..(num-1) {
             for j in (i+1)..num {
-                dr = self.pbc_vdr_vec(&i, &j);
-                norm = (dr[0]*dr[0] + dr[1]*dr[1] + dr[2]*dr[2]).sqrt();
+                dr = self.pbc_vdr_vec(i, j);
+                unsafe {
+                    norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
+                        + dr.get_unchecked(1)*dr.get_unchecked(1)
+                        + dr.get_unchecked(2)*dr.get_unchecked(2)
+                    ).sqrt();
+                }
                 sigma = (self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]])*rscale;
                 if norm > sigma {
                     continue;
@@ -378,11 +476,11 @@ impl Simulation {
     factors
 }
 
-    fn pbc_vdr_vec(&self, i: &usize, j: &usize) -> [f64; 3] {
+    fn pbc_vdr_vec(&self, i: usize, j: usize) -> [f64; 3] {
         let mut mdr: [f64; 3] = [0.0, 0.0, 0.0];
         let mut dr: [f64; 3] = [0.0, 0.0, 0.0];
-        let x1 = self.sys.x[*i];
-        let x2 = self.sys.x[*j];
+        let x1 = self.sys.x[i];
+        let x2 = self.sys.x[j];
     
         for i in 0..(self.sys.dim) {
             dr[i] = x1[i] - x2[i];
@@ -407,7 +505,7 @@ impl Simulation {
 
     pub fn langevin_step(&mut self) {
         // calculate forces
-        let forces = self.f_system_hertz();
+        let forces = self.f_system();
         let dim = self.sys.dim;
 
         // sample normal distribution 
@@ -439,7 +537,7 @@ impl Simulation {
 
     pub fn gd_step(&mut self) -> (f64, f64) {
         // calculate forces
-        let forces = self.f_system_hertz();
+        let forces = self.f_system();
         let max_f = forces.iter().fold(
             0.0_f64,
             |acc, f| {

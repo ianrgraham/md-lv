@@ -4,6 +4,8 @@ use std::fs::File;
 use std::io::BufReader;
 use serde::*;
 
+use crate::simulation::Potential;
+
 
 pub enum ProgramMode {
     Standard,
@@ -48,7 +50,9 @@ pub struct Config {
     pub vscale: f64,
     pub mode: ProgramMode,
     pub init_config: Option<String>,
-    pub unwrap: bool
+    pub unwrap: bool,
+    pub phi: Option<f64>,
+    pub potential: Potential
 }
 
 // convert matches to corresponding generic types, panic if there is an issue
@@ -74,6 +78,9 @@ impl Config {
 
     // initialize configuration from command line arguments
     pub fn new() -> Config {
+
+        let potentials = &["hertz", "lj"];
+
         let matches = App::new("Langevin dynamics simulation")
             .version("0.3.0")
             .author("Ian Graham <irgraham1@gmail.com>")
@@ -91,11 +98,11 @@ impl Config {
                 .help("Side length of the simulation box")
                 .takes_value(true)
                 .default_value("3.0"))
-            // .arg(Arg::with_name("PHI")
-            //     .long("phi")
-            //     .takes_value(true)
-            //     .help("Specify instead the packing fraction")
-            //     .conflicts_with("LEN"))
+            .arg(Arg::with_name("PHI")
+                .long("phi")
+                .takes_value(true)
+                .help("Specify the packing fraction instead of box length. Definition dependent on potential used")
+                .conflicts_with("LEN"))
             .arg(Arg::with_name("TEMP")
                 .short("t")
                 .long("temp")
@@ -160,7 +167,7 @@ impl Config {
                 .help("Output directory of data dumps")
                 .takes_value(true)
                 .default_value("hertzian")
-                .possible_values(&["hertzian", "kob-anderson"]))
+                .possible_values(potentials))
             .arg(Arg::with_name("INIT_CONFIG")
                 .long("init-config")
                 .help("JSON config file initializing the system state. \
@@ -239,10 +246,23 @@ impl Config {
         let dim = conv_match(&matches, "DIM");
         let write_time = conv_match::<f64>(&matches, "OUT");
         let stdout_time = conv_optional_match::<f64>(&matches, "STDOUT");
+        let phi = conv_optional_match::<f64>(&matches, "PHI");
         let seed = conv_match(&matches, "SEED");
         let dir = conv_match(&matches, "DIR");
         let rscale = conv_match(&matches, "RSCALE");
         let vscale = conv_match(&matches, "VSCALE");
+        let pot_str = matches.value_of("POT").unwrap();
+        let potential = match pot_str {
+            "hertz" => {
+                Potential::Hertz
+            }
+            "lj" => {
+                Potential::LJ
+            }
+            _ => {
+                panic!()
+            }
+        };
 
         let dryprint = matches.is_present("DRYPRINT");
         let unwrap = matches.is_present("UNWRAP");
@@ -293,10 +313,10 @@ impl Config {
             None => None
         };
 
-        Config{num: num, len: len, temp: temp, time: time, step_max: step_max, dt: dt, visc: visc, 
-                dim: dim, write_step: write_step, stdout_step: stdout_step, seed: seed, dir: dir,
-                dryprint: dryprint, rscale: rscale, vscale: vscale, mode: mode, init_config: init_config,
-                unwrap: unwrap}
+        Config{num, len, temp, time, step_max, dt, visc, 
+                dim, write_step, stdout_step, seed, dir,
+                dryprint, rscale, vscale, mode, init_config,
+                unwrap, phi, potential}
     }
 
     // format output file suffix with configuration data

@@ -186,7 +186,7 @@ fn main() {
 
                         // run MD step
                         let w = sim.rand_force_vector();
-                        let forces_a = sim.f_system_hertz();
+                        let forces_a = sim.f_system();
 
                         for (int_factor_term, term) in integration_factors
                             .iter_mut()
@@ -346,7 +346,7 @@ fn main() {
 
                         // run MD step
                         let w = sim.rand_force_vector();
-                        let forces_a = sim.f_system_hertz();
+                        let forces_a = sim.f_system();
 
                         for (int_factor_term, term) in integration_factors
                             .iter_mut()
