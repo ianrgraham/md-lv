@@ -416,7 +416,7 @@ fn main() {
 
                     
                     // store data at regular intervals incase of process interuption
-                    if real%1000 == 0 {
+                    if real%10000 == 0 {
                         dataset_realizations.write(&[real+1]).unwrap();
                         sim.dump_gen_hdf5_dataset_collection(
                             &data_col,

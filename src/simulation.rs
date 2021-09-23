@@ -50,7 +50,7 @@ pub enum Potential {
 
 impl Potential {
 
-    fn from_str(string: &str) -> Option<Self> {
+    pub fn from_str(string: &str) -> Option<Self> {
         match string {
             "hertz" => { Some(Hertz) },
             "lj" => { Some(LJ) },
@@ -58,11 +58,23 @@ impl Potential {
         }
     }
 
-    fn to_str(&self) -> String {
+    pub fn to_str(&self) -> &str {
+        let strs = Potential::valid_strs();
         match self {
-            Hertz => { String::from("hertz") },
-            LJ => { String::from("lj")}
+            Hertz => { strs[0] },
+            LJ => { strs[1] }
         }
+    }
+
+    pub fn id(&self) -> usize {
+        match self {
+            Hertz => { 0 },
+            LJ => { 1 }
+        }
+    }
+
+    pub fn valid_strs() -> &'static [&'static str] {
+        &["hertz", "lj"]
     }
 }
 
@@ -75,7 +87,59 @@ pub struct System {
     sigmas: Box<[f64]>,
     dim: usize,
     vscale: f64,
-    potential: Potential
+    potential: Potential,
+    numa: usize
+}
+
+fn calc_vol(len: f64, dim: usize) -> f64 {
+    len.powi(dim as i32)
+}
+
+fn calc_l_from_phi(config: &Config, types: &Vec<usize>, sigmas: &Box<[f64]>, target_phi: f64) -> f64 {
+    match config.potential {
+        Potential::Hertz => {
+            // // computes volume area fraction
+            // let coeff: f64 = match config.dim {
+            //     2 => std::f64::consts::PI,
+            //     3 => 4.0/3.0*std::f64::consts::PI,
+            //     _ => panic!("Dimensions other than 2 and 3 should have already been ruled out!")
+            // };
+
+            
+            // let part_vol = types.iter().fold(0.0, |acc, idx| acc + coeff*sigmas[*idx].powi(config.dim as i32));
+            // (part_vol/target_phi).powf(1.0/(config.dim as f64))
+            ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
+        }, 
+        Potential::LJ => {
+            // computes simple N/[D], where [D] is the unit of distance
+            ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
+        }
+    }
+}
+
+impl System {
+
+    fn calc_phi(&self, vol: f64) -> f64 {
+        match self.potential {
+            Potential::Hertz => {
+                // computes volume area fraction
+                // let coeff: f64 = match self.dim {
+                //     2 => std::f64::consts::PI,
+                //     3 => 4.0/3.0*std::f64::consts::PI,
+                //     _ => panic!("Dimensions other than 2 and 3 should have already been ruled out!")
+                // };
+
+                
+                // let part_vol = self.types.iter().fold(0.0, |acc, idx| acc + coeff*self.sigmas[*idx].powi(self.dim as i32));
+                // part_vol/vol
+                (self.x.len() as f64)/vol
+            }, 
+            Potential::LJ => {
+                // computes simple N/[D], where [D] is the unit of distance
+                (self.x.len() as f64)/vol
+            }
+        }
+    }
 }
 
 pub enum OutputWriter {
@@ -111,6 +175,8 @@ impl Simulation {
         let mut rng = Pcg64::seed_from_u64(seed);
         let normal = Normal::new(0.0f64, dt.sqrt()).unwrap();
 
+
+
         let sys = match &config.init_config {
             Some(path) => {
                 println!("{}", path);
@@ -127,19 +193,46 @@ impl Simulation {
                         Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
                     }
                 };
+
                 old_system.vscale = config.vscale;
+                old_system.potential = config.potential;
                 old_system
             },
             None => {
                 let num = config.num;
-                let sigmas: Box<[f64]> = Box::new([0.5*config.rscale, 0.7*config.rscale]);
+                let sigmas: Box<[f64]> = match config.potential {
+                    Potential::Hertz => {
+                        Box::new([0.5*config.rscale, 0.7*config.rscale])
+                    },
+                    Potential::LJ => {
+                        let rscale = config.rscale;
+                        Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
+                    }
+                };
                 let dim = config.dim;
 
                 let mut b: [f64; 3] = [1., 1., 1.];
                 let mut bh: [f64; 3] = [0.5, 0.5, 0.5];
 
+
+                let mut types = Vec::<usize>::with_capacity(num);
+                for i in 0..num {
+                    if i < config.numa {
+                        types.push(0);
+                    }
+                    else {
+                        types.push(1);
+                    }
+                }
+
                 // compute l from volume respecting dimension of the box
-                l = config.len;
+                l = if let Some(phi) = config.phi {
+                    calc_l_from_phi(config, &types, &sigmas, phi)
+                }
+                else {
+                    config.len
+                };
+                
                 let l2 = l/2.0;
                 for i in 0..dim {
                     b[i] = l;
@@ -147,67 +240,47 @@ impl Simulation {
                 }
 
                 let mut x = Vec::<[f64; 3]>::with_capacity(num);
-                let mut types = Vec::<usize>::with_capacity(num);
 
                 if dim == 3 {
-                    for i in 0..num {
+                    for _ in 0..num {
                         x.push([rng.gen::<f64>()*l - l2, 
                             rng.gen::<f64>()*l - l2, 
                             rng.gen::<f64>()*l - l2]);
-                        if i < num/2 {
-                            types.push(0);
-                        }
-                        else {
-                            types.push(1);
-                        }
                     }
                 }
                 else if dim == 2 {
-                    for i in 0..(config.num) {
+                    for _ in 0..(config.num) {
                         x.push([(rng.gen::<f64>()*l - l2), 
                         (rng.gen::<f64>()*l - l2), 0.0]);
-                        if i < num/2 {
-                            types.push(0);
-                        }
-                        else {
-                            types.push(1);
-                        }
                     }
                 }
                 else {
                     panic!("Incorrect dimension! Must be 2 or 3!");
                 }
-                System{x, types, b, bh, sigmas, dim, vscale: config.vscale, potential: config.potential}
+                System{x, types, b, bh, sigmas, dim, vscale: config.vscale, potential: config.potential, numa: config.numa}
             }
         };
- 
 
-        let coeff: f64 = match sys.dim {
-            2 => std::f64::consts::PI,
-            3 => 4.0/3.0*std::f64::consts::PI,
-            _ => panic!("Dimensions other than 2 and 3 should have already been ruled out!")
-        };
+        let vol = calc_vol(l, config.dim);
 
-        let vol = l.powi(sys.dim as i32);
-        let part_vol = sys.types.iter().fold(0.0, |acc, idx| acc + coeff*sys.sigmas[*idx].powi(sys.dim as i32));
-        let phi = part_vol/vol;
+        let phi = sys.calc_phi(vol);
 
         let path = match config.mode {
             ProgramMode::Standard => {
-                format!("{}/traj_{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.xyz",
-                    config.dir, config.file_suffix(), phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
+                format!("{}/traj_n-{}_na-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.xyz",
+                    config.dir, sys.x.len(), sys.numa, l, config.temp, config.time, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
             },
             ProgramMode::Variant(_, _) => {
-                format!("{}/variants_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.h5",
-                    config.dir, sys.x.len(), l, config.temp, config.time, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
+                format!("{}/variants_n-{}_na-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.h5",
+                    config.dir, sys.x.len(), sys.numa, l, config.temp, config.time, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
             },
             ProgramMode::GenVariant(_, _) => {
-                format!("{}/genvariant_n-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.h5",
-                    config.dir, sys.x.len(), l, config.temp, config.time, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
+                format!("{}/genvariant_n-{}_na-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.h5",
+                    config.dir, sys.x.len(), sys.numa, l, config.temp, config.time, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
             },
             ProgramMode::Equilibrate(_, _) => {
-                format!("{}/equil_n-{}_l-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_rA-{:.4}_rB-{:.4}_vs-{}.json",
-                    config.dir, config.num, l, dt, visc, seed, phi, sys.sigmas[0], sys.sigmas[1], sys.vscale)
+                format!("{}/equil_n-{}_na-{}_l-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.json",
+                    config.dir, sys.x.len(), sys.numa, l, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
             }
         };
 
@@ -648,15 +721,32 @@ impl Simulation {
         var_dataset.write(&vars).unwrap();
     }
 
+    fn store_scalar_in_group<T: hdf5::H5Type>(group: &hdf5::Group, data: T, name: &str) {
+        let data_arr = arr0(data);
+        group.new_dataset::<T>()
+            .create(name, data_arr.shape()).unwrap()
+            .write(&data_arr).unwrap();
+    }
+
     pub fn dump_hdf5_meta_gen(&mut self, config: &Config, init_x: &Vec<[f64; 3]>) {
         let file = match &self.file {
             OutputWriter::HDF5File(file) => file,
             _ => panic!()
         };
         let group = file.create_group("meta").unwrap();
-        let meta = HDF5OutputMeta::new(config);
-        let meta_dataset = group.new_dataset::<HDF5OutputMeta>().create("meta", 1).unwrap();
-        meta_dataset.write(&[meta.clone()]).unwrap();
+
+        Self::store_scalar_in_group(&group, config.temp, "temp");
+        Self::store_scalar_in_group(&group, self.beta, "beta");
+        Self::store_scalar_in_group(&group, config.time, "time");
+        Self::store_scalar_in_group(&group, config.dt, "dt");
+        Self::store_scalar_in_group(&group, config.dim, "dim");
+        Self::store_scalar_in_group(&group, config.len, "len");
+        Self::store_scalar_in_group(&group, config.visc, "visc");
+        Self::store_scalar_in_group(&group, config.seed, "seed");
+        Self::store_scalar_in_group(&group, self.sys.potential.id(), "pot_id");
+        Self::store_scalar_in_group(&group, config.rscale, "rscale");
+        Self::store_scalar_in_group(&group, config.vscale, "vscale");
+
         let x_arr = arr2(&(init_x.to_vec())[..]);
         let init_x_dataset = group.new_dataset::<f64>().create("init_x", x_arr.shape()).unwrap();
         init_x_dataset.write(&x_arr).unwrap();

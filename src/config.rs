@@ -34,6 +34,7 @@ impl VariantConfigs {
 
 pub struct Config {
     pub num: usize,
+    pub numa: usize,
     pub len: f64,
     pub temp: f64,
     pub time: f64,
@@ -79,8 +80,6 @@ impl Config {
     // initialize configuration from command line arguments
     pub fn new() -> Config {
 
-        let potentials = &["hertz", "lj"];
-
         let matches = App::new("Langevin dynamics simulation")
             .version("0.3.0")
             .author("Ian Graham <irgraham1@gmail.com>")
@@ -89,9 +88,15 @@ impl Config {
             .arg(Arg::with_name("NUM")
                 .short("n")
                 .long("num")
-                .help("Number of particles in the box")
+                .help("Total number of particles in the box")
                 .takes_value(true)
                 .default_value("10"))
+            .arg(Arg::with_name("NUMA")
+                .short("n-a")
+                .long("num-a")
+                .help("Max number of A (small) particles in the box")
+                .takes_value(true)
+                .default_value("5"))
             .arg(Arg::with_name("LEN")
                 .short("l")
                 .long("len")
@@ -121,7 +126,7 @@ impl Config {
                 .default_value("5.0"))
             .arg(Arg::with_name("RSCALE")
                 .long("rscale")
-                .help("Rescaling distance cutoff for the inter-atomic potentials")
+                .help("Rescaling distance of the inter-atomic potentials")
                 .takes_value(true)
                 .default_value("1.0"))
             .arg(Arg::with_name("VSCALE")
@@ -164,17 +169,19 @@ impl Config {
                 .takes_value(true))
             .arg(Arg::with_name("POT")
                 .long("potential")
-                .help("Output directory of data dumps")
+                .help("Bidisperse potential used in the simulation")
                 .takes_value(true)
-                .default_value("hertzian")
-                .possible_values(potentials))
+                .default_value("hertz")
+                .possible_values(Potential::valid_strs()))
             .arg(Arg::with_name("INIT_CONFIG")
                 .long("init-config")
                 .help("JSON config file initializing the system state. \
                     Will assert that config is valid")
                 .takes_value(true)
                 .conflicts_with("NUM")
+                .conflicts_with("NUMA")
                 .conflicts_with("LEN")
+                .conflicts_with("PHI")
                 .conflicts_with("DIM"))
             .arg(Arg::with_name("SEED")
                 .long("seed")
@@ -238,6 +245,7 @@ impl Config {
             .get_matches();
 
         let num = conv_match(&matches, "NUM");
+        let numa = conv_match(&matches, "NUMA");
         let len = conv_match(&matches, "LEN");
         let temp = conv_match(&matches, "TEMP");
         let time = conv_match::<f64>(&matches, "TIME");
@@ -263,6 +271,8 @@ impl Config {
                 panic!()
             }
         };
+
+        assert_eq!(rscale, 1.0); // We don't want to fiddle with this any longer
 
         let dryprint = matches.is_present("DRYPRINT");
         let unwrap = matches.is_present("UNWRAP");
@@ -313,7 +323,7 @@ impl Config {
             None => None
         };
 
-        Config{num, len, temp, time, step_max, dt, visc, 
+        Config{num, numa, len, temp, time, step_max, dt, visc, 
                 dim, write_step, stdout_step, seed, dir,
                 dryprint, rscale, vscale, mode, init_config,
                 unwrap, phi, potential}
