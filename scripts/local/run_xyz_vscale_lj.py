@@ -4,7 +4,7 @@ import numpy as np
 
 As = np.linspace(0.1, 1.0, 10)
 
-temps = np.linspace(1.0, 11.0, 11)
+temps = np.linspace(1.0, 11.0, 11) # actually vscale
 
 as_str = ",".join([str(a) for a in As])
 
@@ -21,17 +21,16 @@ as_str = ",".join([str(a) for a in As])
 #     subprocess.run(input)
 
 
-files = glob.glob("/home/ian/Documents/Projects/md-lv/equil_*lj*")
+# files = glob.glob("/home/ian/Documents/Data/MD_LV_paper_data/inits/equil_*na-5*phi-1.2*lj*")
+
+files = ["/home/ian/Documents/Projects/md-lv/"]
 
 for i, f in enumerate(files):
     print(i)
     for temp in temps:
-        print(temp)
-
-        command = f'/home/ian/Documents/Projects/md-lv/target/release/md-lv --unwrap --potential lj --time 10.0 \
-            --init-config {f} --temp 0.1 --vscale {temp} --seed {200000+i} --dt 1e-3 --out-time 1e-2 \
-            --dir /home/ian/Documents/Data/MD_LV_paper_data/lj_msd \
-            gen-variant --realizations 1000 --del-var=0.0 --calc-msd --calc-pos --calc-q={as_str}'
+        command = f'/home/ian/Documents/Projects/md-lv/target/release/md-lv --potential lj --time 10.0 \
+            --init-config {f} --temp 1e-1 --vscale {temp} --seed {200000+i} --dt 1e-4 --out-time 1e-2 \
+            --dir /home/ian/Documents/Data/MD_LV_paper_data/xyz_lj'
 
         input = command.split()
         subprocess.run(input)

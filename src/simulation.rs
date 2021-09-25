@@ -206,7 +206,8 @@ impl Simulation {
                     },
                     Potential::LJ => {
                         let rscale = config.rscale;
-                        Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
+                        // Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
+                        Box::new([rscale, 0.8*rscale, 0.88*rscale, 1.0, 1.5, 0.5])
                     }
                 };
                 let dim = config.dim;
@@ -580,22 +581,37 @@ impl Simulation {
         // calculate forces
         let forces = self.f_system();
         let dim = self.sys.dim;
+        let num = self.sys.x.len();
 
         // sample normal distribution 
         let w: Vec<f64> = self.normal
             .sample_iter(&mut self.rng)
             .take(self.sys.dim*self.sys.x.len())
             .collect();
+
+        let mut dx = Vec::<f64>::with_capacity(w.len());
+        let mut mean_dx = [0.0f64, 0.0, 0.0];
+
+        let mut index = 0;
+        for i in 0..(self.sys.x.len()) {
+            for k in 0..dim {
+                let disp = self.a_term*forces[i][k] + self.b_term*w[index];
+                dx.push(disp);
+                mean_dx[k] += disp;
+                index += 1;
+            }
+        }
+
+        mean_dx.iter_mut().for_each(|x| *x /= num as f64); // divide by number of particles
         
         // apply Euler–Maruyama method to update postions
         let mut index = 0;
         for i in 0..(self.sys.x.len()) {
             for k in 0..dim {
-                self.sys.x[i][k] += 
-                    self.a_term*forces[i][k] + self.b_term*w[index];
+                let disp = dx[index] - mean_dx[k];
+                self.sys.x[i][k] += disp;
                 if self.unwrap.is_some() {
-                    self.unwrap.as_mut().unwrap()[i][k] += 
-                        self.a_term*forces[i][k] + self.b_term*w[index];
+                    self.unwrap.as_mut().unwrap()[i][k] += disp;
                 }
                 if self.sys.x[i][k] >= self.sys.bh[k] {
                     self.sys.x[i][k] -= self.sys.b[k]
@@ -651,15 +667,31 @@ impl Simulation {
             w: &Vec<f64>) {
 
         let dim = self.sys.dim;
+        let num = self.sys.x.len();
+
+        let mut dx = Vec::<f64>::with_capacity(w.len());
+        let mut mean_dx = [0.0f64, 0.0, 0.0];
+
+        let mut index = 0;
+        for i in 0..(self.sys.x.len()) {
+            for k in 0..dim {
+                let disp = self.a_term*forces[i][k] + self.b_term*w[index];
+                dx.push(disp);
+                mean_dx[k] += disp;
+                index += 1;
+            }
+        }
+
+        mean_dx.iter_mut().for_each(|x| *x /= num as f64); // divide by number of particles
         
         // apply Euler–Maruyama method to update postions
         let mut index = 0;
         for i in 0..(self.sys.x.len()) {
             for k in 0..dim {
-                self.sys.x[i][k] += self.a_term*forces[i][k] + self.b_term*w[index];
+                let disp = dx[index] - mean_dx[k];
+                self.sys.x[i][k] += disp;
                 if self.unwrap.is_some() {
-                    self.unwrap.as_mut().unwrap()[i][k] += 
-                        self.a_term*forces[i][k] + self.b_term*w[index];
+                    self.unwrap.as_mut().unwrap()[i][k] += disp;
                 }
                 if self.sys.x[i][k] >= self.sys.bh[k] {
                     self.sys.x[i][k] -= self.sys.b[k]
@@ -685,6 +717,11 @@ impl Simulation {
                         &self.sys.x
                     }
                 };
+
+                let sigmas = match self.sys.potential {
+                    Hertz => { &self.sys.sigmas[..] },
+                    LJ => { &[0.5, 0.4] }
+                };
             
                 writeln!(file, "{}\n", pos.len()).expect("FILE IO ERROR!");
                 
@@ -696,7 +733,7 @@ impl Simulation {
                         x[0], 
                         x[1], 
                         x[2],
-                        self.sys.sigmas[*typeid]
+                        sigmas[*typeid]
                     ).expect("FILE IO ERROR!");
                 }
             },
