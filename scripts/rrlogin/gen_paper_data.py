@@ -17,7 +17,7 @@ if idx%2 == 0:
 else:
     pot = "lj"
 
-files = glob.glodb("/home/igraham/data/MD_LV_paper_data/equil/equil_*{pot}*")
+files = glob.glob("/home/igraham/data/MD_LV_paper_data/equil/equil_*{pot}*")
 
 assert(len(files) == 1)
 f = files[0]
