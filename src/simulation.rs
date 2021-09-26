@@ -869,13 +869,15 @@ impl Simulation {
         data_col: &Vec<hdf5::Dataset>,
         time_data: ArrayView1<f64>,
         norm_data: ArrayView2<f64>,
+        norm2_data: ArrayView2<f64>,
         msd_data: &Option<Array2<f64>>,
         pos_data: &Option<Array4<f64>>,
         q_data: &Option<Array3<f64>>
     ) {
         data_col[0].write(time_data).unwrap();
         data_col[1].write(norm_data).unwrap();
-        let mut idx = 2;
+        data_col[2].write(norm2_data).unwrap();
+        let mut idx = 3;
         if let Some(data) = msd_data {
             data_col[idx].write(data).unwrap();
             idx += 1;

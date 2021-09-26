@@ -262,6 +262,10 @@ fn main() {
                 names.push("Norm");
                 shapes.push(vec![len_vars, write_outputs]);
                 let mut norm_data = Array2::<f64>::zeros((len_vars, write_outputs));
+                
+                names.push("Norm2");
+                shapes.push(vec![len_vars, write_outputs]);
+                let mut norm2_data = Array2::<f64>::zeros((len_vars, write_outputs));
                 // write_data.push(ArrayD::<f64>::zeros(IxDyn(&[len_vars, write_outputs])));
                 // exists.push(true);
 
@@ -413,6 +417,7 @@ fn main() {
 
                     // norm_data.iter_mut().zip(tmp_ib);
                     azip!((a in &mut norm_data, &b in &tmp_ib) *a += b);
+                    azip!((a in &mut norm2_data, &b in &tmp_ib) *a += b*b);
 
                     
                     // store data at regular intervals incase of process interuption
@@ -422,6 +427,7 @@ fn main() {
                             &data_col,
                             time_data.view(),
                             norm_data.view(),
+                            norm2_data.view(),
                             &msd_data,
                             &pos_data,
                             &q_data
@@ -435,6 +441,7 @@ fn main() {
                     &data_col,
                     time_data.view(),
                     norm_data.view(),
+                    norm2_data.view(),
                     &msd_data,
                     &pos_data,
                     &q_data
