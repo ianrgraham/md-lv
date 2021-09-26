@@ -337,7 +337,7 @@ impl Simulation {
                 }
                 else {
                     let vscale = self.sys.vscale;
-                    let mag = (vscale/sigma)*(1.0-norm/sigma).powf(1.5);
+                    let mag = (10.0*vscale/sigma)*(1.0-norm/sigma).powf(1.5);
                     Some(mag)
                 }
             }
