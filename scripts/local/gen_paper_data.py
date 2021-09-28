@@ -10,7 +10,7 @@ as_str = ",".join([str(a) for a in As])
 vs = -np.logspace(0, 1, 11) + 1.0
 vs_str = ",".join([str(a) for a in vs])
 
-idx = int(sys.argv[1])
+idx = int(sys.argv[1]) + 999
 
 if idx%2 == 0:
     pot = "hertz"
