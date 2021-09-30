@@ -11,7 +11,7 @@ pub enum ProgramMode {
     Standard,
     Variant(VariantConfigs, usize),
     GenVariant(usize, Option<(Vec<f64>, bool, bool, Option<Vec<f64>>)>),
-    Equilibrate(f64, f64)
+    Equilibrate(f64, f64, bool)
 }
 
 #[derive(hdf5::H5Type, Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -241,7 +241,10 @@ impl Config {
                     .default_value("1e-10"))
                 .arg(Arg::with_name("MAX_F")
                     .required(true)
-                    .default_value("1e-10")))
+                    .default_value("1e-10"))
+                .arg(Arg::with_name("MELT")
+                    .long("melt")
+                    .help("Run Langevin dynamics before quenching")))
             .get_matches();
 
         let num = conv_match(&matches, "NUM");
@@ -292,7 +295,8 @@ impl Config {
             else if let Some(equil_match) = matches.subcommand_matches("equil-gd") {
                 let max_dr: f64 = conv_match(&equil_match, "MAX_DR");
                 let max_f: f64 = conv_match(&equil_match, "MAX_F");
-                ProgramMode::Equilibrate(max_dr, max_f)
+                let melt = equil_match.is_present("MELT");
+                ProgramMode::Equilibrate(max_dr, max_f, melt)
             }
             else if let Some(gen_variant_match) = matches.subcommand_matches("gen-variant") {
                 let realizations = conv_match(&gen_variant_match, "REALIZATIONS");
