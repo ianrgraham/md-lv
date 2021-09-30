@@ -448,8 +448,24 @@ fn main() {
                 );
             }
         },
-        ProgramMode::Equilibrate(max_dr, max_f) => {
-            for step in 0..(config.step_max+1) {
+        ProgramMode::Equilibrate(max_dr, max_f, melt) => {
+            if *melt {
+                for step in 0..(config.step_max+1) {
+
+                    // run MD step
+                    sim.langevin_step();
+            
+                    // print to terminal
+                    if config.stdout_step.is_some() {
+                        if step % config.stdout_step.unwrap() == 0 {
+                            println!("{}", step);
+                        }
+                    }
+                }
+            }
+
+            let mut step = 0;
+            loop {
 
                 // run MD step
                 let (cur_max_dr, cur_max_f) = sim.gd_step();
@@ -464,6 +480,7 @@ fn main() {
                 if cur_max_dr/config.dt < *max_dr && cur_max_f < *max_f {
                     break;
                 }
+                step += 1;
             }
             sim.dump_json();
         }

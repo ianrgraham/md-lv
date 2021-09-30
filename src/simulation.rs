@@ -207,7 +207,8 @@ impl Simulation {
                     Potential::LJ => {
                         let rscale = config.rscale;
                         // Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
-                        Box::new([rscale, 0.8*rscale, 0.88*rscale, 1.0, 1.5, 0.5])
+                        // Box::new([rscale, 0.8*rscale, 0.88*rscale, 1.0, 1.5, 0.5])
+                        Box::new([0.88*rscale, 0.8*rscale, rscale, 0.5, 1.5, 1.0])
                     }
                 };
                 let dim = config.dim;
@@ -279,7 +280,7 @@ impl Simulation {
                 format!("{}/genvariant_n-{}_na-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.h5",
                     config.dir, sys.x.len(), sys.numa, l, config.temp, config.time, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
             },
-            ProgramMode::Equilibrate(_, _) => {
+            ProgramMode::Equilibrate(_, _, _) => {
                 format!("{}/equil_n-{}_na-{}_l-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.json",
                     config.dir, sys.x.len(), sys.numa, l, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
             }
@@ -304,7 +305,7 @@ impl Simulation {
                 OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
             ProgramMode::GenVariant(_, _) => 
                 OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
-            ProgramMode::Equilibrate(_, _) => {
+            ProgramMode::Equilibrate(_, _, _) => {
                 let file = OpenOptions::new()
                     .write(true)
                     .truncate(true)
@@ -345,7 +346,7 @@ impl Simulation {
                 // sys.sigmas has data for both the sigmas, and the relative potential strengths
                 let pair =  self.sys.types[i] + self.sys.types[j];
                 let sigma = self.sys.sigmas[pair];
-                if norm > sigma*2.5 {
+                if norm > sigma*2.5 { // 1.12246204831
                     None
                 }
                 else {
