@@ -45,7 +45,8 @@ impl HDF5OutputMeta {
 #[derive(Copy, Clone, Serialize, Deserialize)]
 pub enum Potential {
     Hertz,
-    LJ
+    LJ,
+    WCA
 }
 
 impl Potential {
@@ -54,6 +55,7 @@ impl Potential {
         match string {
             "hertz" => { Some(Hertz) },
             "lj" => { Some(LJ) },
+            "wca" => { Some(WCA) },
             _ => { None }
         }
     }
@@ -62,19 +64,21 @@ impl Potential {
         let strs = Potential::valid_strs();
         match self {
             Hertz => { strs[0] },
-            LJ => { strs[1] }
+            LJ => { strs[1] },
+            WCA => { strs[2] }
         }
     }
 
     pub fn id(&self) -> usize {
         match self {
             Hertz => { 0 },
-            LJ => { 1 }
+            LJ => { 1 },
+            WCA => { 2 }
         }
     }
 
     pub fn valid_strs() -> &'static [&'static str] {
-        &["hertz", "lj"]
+        &["hertz", "lj", "wca"]
     }
 }
 
@@ -95,7 +99,7 @@ fn calc_vol(len: f64, dim: usize) -> f64 {
     len.powi(dim as i32)
 }
 
-fn calc_l_from_phi(config: &Config, types: &Vec<usize>, sigmas: &Box<[f64]>, target_phi: f64) -> f64 {
+fn calc_l_from_phi(config: &Config, _types: &Vec<usize>, _sigmas: &Box<[f64]>, target_phi: f64) -> f64 {
     match config.potential {
         Potential::Hertz => {
             // // computes volume area fraction
@@ -110,7 +114,7 @@ fn calc_l_from_phi(config: &Config, types: &Vec<usize>, sigmas: &Box<[f64]>, tar
             // (part_vol/target_phi).powf(1.0/(config.dim as f64))
             ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
         }, 
-        Potential::LJ => {
+        Potential::LJ | Potential::WCA => {
             // computes simple N/[D], where [D] is the unit of distance
             ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
         }
@@ -134,7 +138,7 @@ impl System {
                 // part_vol/vol
                 (self.x.len() as f64)/vol
             }, 
-            Potential::LJ => {
+            Potential::LJ | Potential::WCA => {
                 // computes simple N/[D], where [D] is the unit of distance
                 (self.x.len() as f64)/vol
             }
@@ -188,7 +192,7 @@ impl Simulation {
                     Potential::Hertz => {
                         Box::new([0.5*config.rscale, 0.7*config.rscale])
                     },
-                    Potential::LJ => {
+                    Potential::LJ | Potential::WCA => {
                         let rscale = config.rscale;
                         Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
                     }
@@ -204,7 +208,7 @@ impl Simulation {
                     Potential::Hertz => {
                         Box::new([0.5*config.rscale, 0.7*config.rscale])
                     },
-                    Potential::LJ => {
+                    Potential::LJ | Potential::WCA => {
                         let rscale = config.rscale;
                         // Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
                         // Box::new([rscale, 0.8*rscale, 0.88*rscale, 1.0, 1.5, 0.5])
@@ -347,6 +351,25 @@ impl Simulation {
                 let pair =  self.sys.types[i] + self.sys.types[j];
                 let sigma = self.sys.sigmas[pair];
                 if norm > sigma*2.5 { // 1.12246204831
+                    None
+                }
+                else {
+                    let epsilon = self.sys.sigmas[pair + 3];
+                    let vscale = self.sys.vscale;
+                    let norm_inv = 1.0/norm;
+                    let x = sigma*norm_inv;
+                    let x2 = x*x;
+                    let x4 = x2*x2;
+                    let x6 = x2*x4;
+                    let mag = vscale*epsilon*(12.0*x6*x6*norm_inv - 6.0*x6*norm_inv);
+                    Some(mag)
+                }
+            },
+            Potential::WCA => {
+                // sys.sigmas has data for both the sigmas, and the relative potential strengths
+                let pair =  self.sys.types[i] + self.sys.types[j];
+                let sigma = self.sys.sigmas[pair];
+                if norm > 1.12246204831*sigma {
                     None
                 }
                 else {
@@ -721,7 +744,7 @@ impl Simulation {
 
                 let sigmas = match self.sys.potential {
                     Hertz => { &self.sys.sigmas[..] },
-                    LJ => { &[0.5, 0.4] }
+                    LJ | WCA => { &[0.4, 0.5] }
                 };
             
                 writeln!(file, "{}\n", pos.len()).expect("FILE IO ERROR!");
