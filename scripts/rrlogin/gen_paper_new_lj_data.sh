@@ -5,7 +5,7 @@
 #SBATCH --threads-per-core=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks=1
-#SBATCH --array=1-200
+#SBATCH --array=1-100
 #SBATCH --mem=100M
 #SBATCH --nodes=1
         
