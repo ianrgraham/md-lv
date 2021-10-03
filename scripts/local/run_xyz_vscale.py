@@ -21,14 +21,14 @@ as_str = ",".join([str(a) for a in As])
 #     subprocess.run(input)
 
 
-files = glob.glob("/home/ian/Documents/Data/MD_LV_paper_data/xyz/equil_*hertz*")
+files = glob.glob("/home/ian/Documents/Data/MD_LV_paper_data/final_equil/equil_*hertz*")
 
 for i, f in enumerate(files):
     print(i)
     for temp in temps:
         command = f'/home/ian/Documents/Projects/md-lv/target/release/md-lv --potential hertz --time 100.0 \
             --init-config {f} --temp 1e-2 --vscale {temp} --seed {200000+i} --dt 1e-3 --out-time 1e-1 \
-            --dir /home/ian/Documents/Data/MD_LV_paper_data/xyz'
+            --dir .'
 
         input = command.split()
         subprocess.run(input)
