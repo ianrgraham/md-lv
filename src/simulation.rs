@@ -194,7 +194,7 @@ impl Simulation {
                     },
                     Potential::LJ | Potential::WCA => {
                         let rscale = config.rscale;
-                        Box::new([0.88*rscale, 0.8*rscale, rscale, 0.5, 1.5, 1.0])
+                        Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
                     }
                 };
 
@@ -355,7 +355,7 @@ impl Simulation {
                 }
                 else {
                     let epsilon = self.sys.sigmas[pair + 3];
-                    let vscale = self.sys.vscale*4.0;
+                    let vscale = self.sys.vscale;
                     let norm_inv = 1.0/norm;
                     let x = sigma*norm_inv;
                     let x2 = x*x;
@@ -374,7 +374,7 @@ impl Simulation {
                 }
                 else {
                     let epsilon = self.sys.sigmas[pair + 3];
-                    let vscale = 4.0*self.sys.vscale;
+                    let vscale = self.sys.vscale;
                     let norm_inv = 1.0/norm;
                     let x = sigma*norm_inv;
                     let x2 = x*x;

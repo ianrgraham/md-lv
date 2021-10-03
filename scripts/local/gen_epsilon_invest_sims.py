@@ -6,9 +6,9 @@ import sys
 As = np.linspace(0.1, 0.3, 15)
 as_str = ",".join([str(a) for a in As])
 
-temps = np.logspace(-1, 0, 11)
+temps = np.logspace(-1, 0, 10, endpoint=False)/10
 
-files = glob.glob("/home/ian/Documents/Data/MD_LV_paper_data/equil/equil_n-10_na-4_l-3.015113445777636_dt-1e-3_visc-5_seed-11_phi-1.1000_pot-lj_rs-1_vs-1.json")
+files = glob.glob("/home/ian/Documents/Data/MD_LV_paper_data/equil/equil_n-10_na-5_l-3.1622776601683795_dt-1e-3_visc-5_seed-30_phi-1.0000_pot-hertz_rs-1_vs-1.json")
 
 idx = 700
 
@@ -27,7 +27,7 @@ idx = 700
 #         idx += 1
 #     break
 
-files = glob.glob("/home/ian/Documents/Projects/md-lv/equil_n-10_na-4_l-3.015113445777636_dt-1e-3_visc-5_seed-11_phi-1.1000_pot-lj_rs-1_vs-1.json")
+files = glob.glob("/home/ian/Documents/Data/MD_LV_paper_data/equil/equil_n-25_na-9_l-4.639065309883615_dt-1e-3_visc-5_seed-9900_phi-1.1617_pot-lj_rs-1_vs-1.json")
 
 for i, f in enumerate(files):
     print(i)
