@@ -210,8 +210,6 @@ impl Simulation {
                     },
                     Potential::LJ | Potential::WCA => {
                         let rscale = config.rscale;
-                        // Box::new([0.618*rscale, rscale, 1.176*rscale, 0.5, 1.0, 0.5])
-                        // Box::new([rscale, 0.8*rscale, 0.88*rscale, 1.0, 1.5, 0.5])
                         Box::new([0.88*rscale, 0.8*rscale, rscale, 0.5, 1.5, 1.0])
                     }
                 };
@@ -355,7 +353,7 @@ impl Simulation {
                 }
                 else {
                     let epsilon = self.sys.sigmas[pair + 3];
-                    let vscale = self.sys.vscale*4.0;
+                    let vscale = 4.0*self.sys.vscale;
                     let norm_inv = 1.0/norm;
                     let x = sigma*norm_inv;
                     let x2 = x*x;
@@ -800,8 +798,8 @@ impl Simulation {
         Self::store_scalar_in_group(&group, self.beta, "beta");
         Self::store_scalar_in_group(&group, config.time, "time");
         Self::store_scalar_in_group(&group, config.dt, "dt");
-        Self::store_scalar_in_group(&group, config.dim, "dim");
-        Self::store_scalar_in_group(&group, config.len, "len");
+        Self::store_scalar_in_group(&group, self.sys.dim, "dim");
+        Self::store_scalar_in_group(&group, self.sys.b[0], "len");
         Self::store_scalar_in_group(&group, config.visc, "visc");
         Self::store_scalar_in_group(&group, config.seed, "seed");
         Self::store_scalar_in_group(&group, self.sys.potential.id(), "pot_id");

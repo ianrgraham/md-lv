@@ -29,3 +29,16 @@ command = f'/home/igraham/Documents/md-lv/target/release/md-lv --unwrap --potent
 
 input = command.split()
 subprocess.run(input)
+
+files = glob.glob(f"/home/igraham/data/MD_LV_paper_data/final_equil/equil_*{pot}*")
+
+assert(len(files) == 1)
+f = files[0]
+
+command = f'/home/igraham/Documents/md-lv/target/release/md-lv --unwrap --potential {pot} \
+    --init-config {f} --vscale 0.1 --temp 0.1 --seed {idx} --dt 1e-3 --out-time 1e-2 \
+    --dir /home/igraham/data/MD_LV_paper_data/{pot}_pred_lastother --time 10 \
+    gen-variant --realizations 100000 --del-var={vs_str} --calc-msd --calc-pos --calc-q={as_str}'
+
+input = command.split()
+subprocess.run(input)
