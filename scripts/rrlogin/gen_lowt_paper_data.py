@@ -19,14 +19,17 @@ else:
     pot = "lj"
     ref_v = 0.01
 
-files = glob.glob(f"/home/igraham/data/MD_LV_paper_data/equil_final/equil_*{pot}*")
+if pot == "lj":
+    files = glob.glob(f"/home/igraham/data/MD_LV_paper_data/equil_lastone/equil_*{pot}*")
+else:
+    files = glob.glob(f"/home/igraham/data/MD_LV_paper_data/final_equil/equil_*{pot}*")
 
 assert(len(files) == 1)
 f = files[0]
 
 command = f'/home/igraham/Documents/md-lv/target/release/md-lv --unwrap --potential {pot} \
     --init-config {f} --temp 0.01 --vscale {ref_v} --seed {idx} --dt 1e-3 --out-time 1e-2 \
-    --dir /home/igraham/data/MD_LV_paper_data/{pot}_pred_final --time 100 \
+    --dir /home/igraham/data/MD_LV_paper_data/{pot}_pred_lowt --time 10 \
     gen-variant --realizations 100000 --del-var={vs_str} --calc-msd --calc-pos --calc-q={as_str}'
 
 input = command.split()

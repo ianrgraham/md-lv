@@ -7,7 +7,7 @@ import sys
 As = np.linspace(0.1, 0.3, 15)
 as_str = ",".join([str(a) for a in As])
 
-vs = np.logspace(0, 1, 11)*0.02
+vs = np.logspace(0, 1, 11)*0.1
 
 idx = int(sys.argv[1]) + 22999
 
