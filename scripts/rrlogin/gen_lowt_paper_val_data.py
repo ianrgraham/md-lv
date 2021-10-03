@@ -18,7 +18,10 @@ else:
 
 vs = np.logspace(0, 1, 11)*ref_v
 
-files = glob.glob(f"/home/igraham/data/MD_LV_paper_data/equil/equil_*{pot}*")
+if pot == "lj":
+    files = glob.glob(f"/home/igraham/data/MD_LV_paper_data/equil_lastone/equil_*{pot}*")
+else:
+    files = glob.glob(f"/home/igraham/data/MD_LV_paper_data/final_equil/equil_*{pot}*")
 
 assert(len(files) == 1)
 f = files[0]
