@@ -53,7 +53,8 @@ pub struct Config {
     pub init_config: Option<String>,
     pub unwrap: bool,
     pub phi: Option<f64>,
-    pub potential: Potential
+    pub potential: Potential,
+    pub images: bool
 }
 
 // convert matches to corresponding generic types, panic if there is an issue
@@ -81,7 +82,7 @@ impl Config {
     pub fn new() -> Config {
 
         let matches = App::new("Langevin dynamics simulation")
-            .version("0.3.0")
+            .version("0.4.0")
             .author("Ian Graham <irgraham1@gmail.com>")
             .about("Runs a simulation of a collection of Hertzian particles in the NVT ensemble. \
                 Applies overdamped langevin dynamics to update the system.")
@@ -197,6 +198,9 @@ impl Config {
             .arg(Arg::with_name("KAHAN")
                 .long("kahan")
                 .help("Utilize Kahan Summation in the Euler-Mayurama method"))
+            .arg(Arg::with_name("IMAGES")
+                .long("images")
+                .help("Force computation of all periodic images"))
             .subcommand(SubCommand::with_name("variant")
                 .about("Used to run variant trajectories with differing parameters")
                 .arg(Arg::with_name("CONFIG")
@@ -279,6 +283,7 @@ impl Config {
 
         let dryprint = matches.is_present("DRYPRINT");
         let unwrap = matches.is_present("UNWRAP");
+        let images = matches.is_present("IMAGES");
         let init_config = matches.value_of("INIT_CONFIG").map(|path| path.to_string());
 
         let mode: ProgramMode = {
@@ -330,7 +335,7 @@ impl Config {
         Config{num, numa, len, temp, time, step_max, dt, visc, 
                 dim, write_step, stdout_step, seed, dir,
                 dryprint, rscale, vscale, mode, init_config,
-                unwrap, phi, potential}
+                unwrap, phi, potential, images}
     }
 
     // format output file suffix with configuration data

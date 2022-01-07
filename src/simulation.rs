@@ -7,6 +7,8 @@ use std::io::{BufWriter, Write, BufReader};
 use std::process;
 use serde::*;
 use ndarray::*;
+use std::ops::AddAssign;
+use itertools::iproduct;
 
 use crate::config::{Config, ProgramMode, VariantConfigs, VariantConfig};
 
@@ -102,20 +104,9 @@ fn calc_vol(len: f64, dim: usize) -> f64 {
 fn calc_l_from_phi(config: &Config, _types: &Vec<usize>, _sigmas: &Box<[f64]>, target_phi: f64) -> f64 {
     match config.potential {
         Potential::Hertz => {
-            // // computes volume area fraction
-            // let coeff: f64 = match config.dim {
-            //     2 => std::f64::consts::PI,
-            //     3 => 4.0/3.0*std::f64::consts::PI,
-            //     _ => panic!("Dimensions other than 2 and 3 should have already been ruled out!")
-            // };
-
-            
-            // let part_vol = types.iter().fold(0.0, |acc, idx| acc + coeff*sigmas[*idx].powi(config.dim as i32));
-            // (part_vol/target_phi).powf(1.0/(config.dim as f64))
             ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
         }, 
         Potential::LJ | Potential::WCA => {
-            // computes simple N/[D], where [D] is the unit of distance
             ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
         }
     }
@@ -126,20 +117,9 @@ impl System {
     fn calc_phi(&self, vol: f64) -> f64 {
         match self.potential {
             Potential::Hertz => {
-                // computes volume area fraction
-                // let coeff: f64 = match self.dim {
-                //     2 => std::f64::consts::PI,
-                //     3 => 4.0/3.0*std::f64::consts::PI,
-                //     _ => panic!("Dimensions other than 2 and 3 should have already been ruled out!")
-                // };
-
-                
-                // let part_vol = self.types.iter().fold(0.0, |acc, idx| acc + coeff*self.sigmas[*idx].powi(self.dim as i32));
-                // part_vol/vol
                 (self.x.len() as f64)/vol
             }, 
             Potential::LJ | Potential::WCA => {
-                // computes simple N/[D], where [D] is the unit of distance
                 (self.x.len() as f64)/vol
             }
         }
@@ -160,8 +140,8 @@ pub struct Simulation {
     b_term: f64,  // (2.0/(visc*beta)).sqrt()
     pub file: OutputWriter,
     unwrap: Option<Vec<[f64; 3]>>,
-    pub beta: f64
-    //comp: Option<Vec<[f64; 3]>>
+    pub beta: f64,
+    images: Option<Vec<[f64; 3]>>
 }
 
 
@@ -327,7 +307,30 @@ impl Simulation {
             }
         };
 
-        let sim = Simulation{sys, rng, normal, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file, unwrap, beta};
+        let images = match config.images {
+            true => {
+                let b = sys.b;
+                if sys.dim == 2 {
+                    let x = iproduct!(-1..1, -1..1)
+                        .map(
+                            |(x, y)| [(x as f64)*b[0], (y as f64)*b[1], 0.0]
+                        ).collect();
+                    Some(x)
+                }
+                else {
+                    let x = iproduct!(-1..1, -1..1, -1..1)
+                        .map(
+                            |(x, y, z)| [(x as f64)*b[0], (y as f64)*b[1], (z as f64)*b[2]]
+                        ).collect();
+                    Some(x)
+                }
+            },
+            false => {
+                None
+            }
+        };
+
+        let sim = Simulation{sys, rng, normal, a_term: dt/visc, b_term: (2.0/(visc*beta)).sqrt(), file, unwrap, beta, images};
         sim
     }
 
@@ -385,42 +388,6 @@ impl Simulation {
         }
     }
 
-    pub fn f_system_hertz(&mut self) -> Vec<[f64; 3]> {
-        let num = self.sys.x.len();
-        let mut comp: f64;
-        let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
-        for _ in 0..num {
-            f_hertz_all.push([0.0, 0.0, 0.0]);
-        }
-        let mut dr: [f64; 3];
-        let mut norm: f64;
-        let mut mag: f64;
-        let mut sigma: f64;
-        let vscale = self.sys.vscale;
-        for i in 0..(num-1) {
-            for j in (i+1)..num {
-                dr = self.pbc_vdr_vec(i, j);
-                unsafe {
-                    norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
-                        + dr.get_unchecked(1)*dr.get_unchecked(1)
-                        + dr.get_unchecked(2)*dr.get_unchecked(2)
-                    ).sqrt();
-                }
-                sigma = self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]];
-                if norm > sigma {
-                    continue;
-                }
-                mag = (vscale/sigma)*(1.0-norm/sigma).powf(1.5);
-                for k in 0..(self.sys.dim) {
-                    comp = mag*dr[k]/norm;
-                    f_hertz_all[i][k] += comp;
-                    f_hertz_all[j][k] -= comp;
-                }
-            }
-        }
-        f_hertz_all
-    }
-
     pub fn f_system(&mut self) -> Vec<[f64; 3]> {
         let num = self.sys.x.len();
         let mut comp: f64;
@@ -428,111 +395,47 @@ impl Simulation {
         for _ in 0..num {
             f_hertz_all.push([0.0, 0.0, 0.0]);
         }
+
         let mut dr: [f64; 3];
         let mut norm: f64;
         for i in 0..(num-1) {
             for j in (i+1)..num {
                 dr = self.pbc_vdr_vec(i, j);
-                unsafe {
-                    norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
-                        + dr.get_unchecked(1)*dr.get_unchecked(1)
-                        + dr.get_unchecked(2)*dr.get_unchecked(2)
-                    ).sqrt();
-                }
-                if let Some(mag) = self.force(norm, i, j) {
-                    for k in 0..(self.sys.dim) {
-                        comp = mag*dr[k]/norm;
-                        f_hertz_all[i][k] += comp;
-                        f_hertz_all[j][k] -= comp;
+                match &self.images {
+                    None => {
+                        unsafe {
+                            norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
+                                + dr.get_unchecked(1)*dr.get_unchecked(1)
+                                + dr.get_unchecked(2)*dr.get_unchecked(2)
+                            ).sqrt();
+                        }
+                        if let Some(mag) = self.force(norm, i, j) {
+                            for k in 0..(self.sys.dim) {
+                                comp = mag*dr[k]/norm;
+                                f_hertz_all[i][k] += comp;
+                                f_hertz_all[j][k] -= comp;
+                            }
+                        }
+                    },
+                    Some(images) => {
+                        for disp in images {
+                            let mut new_dr = [0.0f64, 0.0, 0.0];
+                            new_dr.iter_mut().zip(dr).zip(disp).for_each(|((ri, xi), di)| *ri = xi + di);
+                            unsafe {
+                                norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
+                                    + dr.get_unchecked(1)*dr.get_unchecked(1)
+                                    + dr.get_unchecked(2)*dr.get_unchecked(2)
+                                ).sqrt();
+                            }
+                            if let Some(mag) = self.force(norm, i, j) {
+                                for k in 0..(self.sys.dim) {
+                                    comp = mag*dr[k]/norm;
+                                    f_hertz_all[i][k] += comp;
+                                    f_hertz_all[j][k] -= comp;
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        }
-        f_hertz_all
-    }
-
-
-    pub fn f_system_hertz_variants(&mut self, variants: &VariantConfigs) -> (Vec<[f64; 3]>, Vec<Vec<[f64; 3]>>) {
-        let num = self.sys.x.len();
-        let variant_num = variants.len();
-        let mut comp: f64;
-        let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
-        let mut variant_f_hertz = Vec::<Vec<[f64; 3]>>::with_capacity(variant_num);
-        for _ in 0..num {
-            f_hertz_all.push([0.0, 0.0, 0.0]);
-        }
-        for _ in 0..variant_num {
-            variant_f_hertz.push(f_hertz_all.to_vec());
-        }
-        let mut dr: [f64; 3];
-        let mut norm: f64;
-        let mut mag: f64;
-        let mut sigma: f64;
-        let vscale = self.sys.vscale;
-        for i in 0..(num-1) {
-            for j in (i+1)..num {
-                dr = self.pbc_vdr_vec(i, j);
-                unsafe {
-                    norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
-                        + dr.get_unchecked(1)*dr.get_unchecked(1)
-                        + dr.get_unchecked(2)*dr.get_unchecked(2)
-                    ).sqrt();
-                }
-                sigma = self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]];
-
-                mag = (vscale/sigma)*((1.0-norm/sigma).max(0.0)).powf(1.5);
-                for k in 0..(self.sys.dim) {
-                    comp = mag*dr[k]/norm;
-                    f_hertz_all[i][k] += comp;
-                    f_hertz_all[j][k] -= comp;
-                }
-                for (l, var) in variants.configs.iter().enumerate() {
-                    let tmp_sigma = sigma*var.rscale;
-                    let tmp_vscale = vscale*var.vscale;
-                    mag = (tmp_vscale/tmp_sigma)*((1.0-norm/tmp_sigma).max(0.0)).powf(1.5);
-                    for k in 0..(self.sys.dim) {
-                        comp = mag*dr[k]/norm;
-                        variant_f_hertz[l][i][k] += comp;
-                        variant_f_hertz[l][j][k] -= comp;
-                    }
-                }
-            }
-
-        }
-        (f_hertz_all, variant_f_hertz)
-    }
-
-    // calculate forces with different sigma
-    pub fn f_system_hertz_rescale(&mut self, rscale: f64, vscale: f64) -> Vec<[f64; 3]> {
-        let num = self.sys.x.len();
-        let mut comp: f64;
-        let mut f_hertz_all = Vec::<[f64; 3]>::with_capacity(num);
-        for _ in 0..num {
-            f_hertz_all.push([0.0, 0.0, 0.0]);
-        }
-        let mut dr: [f64; 3];
-        let mut norm: f64;
-        let mut mag: f64;
-        let mut sigma: f64;
-        let c_vscale = vscale*self.sys.vscale;
-        for i in 0..(num-1) {
-            for j in (i+1)..num {
-                dr = self.pbc_vdr_vec(i, j);
-                unsafe {
-                    norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
-                        + dr.get_unchecked(1)*dr.get_unchecked(1)
-                        + dr.get_unchecked(2)*dr.get_unchecked(2)
-                    ).sqrt();
-                }
-                sigma = (self.sys.sigmas[self.sys.types[i]] + self.sys.sigmas[self.sys.types[j]])*rscale;
-                if norm > sigma {
-                    continue;
-                }
-                mag = (c_vscale/sigma)*(1.0-norm/sigma).powf(1.5);
-                for k in 0..(self.sys.dim) {
-                    comp = mag*dr[k]/norm;
-                    f_hertz_all[i][k] += comp;
-                    f_hertz_all[j][k] -= comp;
                 }
             }
         }
@@ -592,12 +495,6 @@ impl Simulation {
         mdr
     }
 
-    // use internal random number generator to fetch an index
-    #[allow(dead_code)]
-    fn rand_index(&mut self) -> usize {
-        let i = self.rng.gen_range(0..(self.sys.x.len()));
-        i
-    }
 
     pub fn langevin_step(&mut self) {
         // calculate forces
@@ -997,4 +894,45 @@ impl Simulation {
             return
         }
     }
+}
+
+#[derive(Default, Debug, Copy, Clone, PartialEq)]
+pub struct KahanAdder {
+    accum: f64,
+    comp: f64
+}
+
+impl KahanAdder {
+
+    pub fn new() -> Self {
+        KahanAdder{accum: 0.0, comp: 0.0}
+    }
+
+    fn add(&mut self, num: &f64) {
+        let y = num - self.comp;
+        let t = self.accum + y;
+        self.comp = (t - self.accum) - y;
+        self.accum = t;
+    }
+
+    pub fn result(&self) -> f64 {
+        self.accum.clone()
+    }
+
+    #[allow(dead_code)]
+    fn reset(&mut self) {
+        self.accum = 0.0;
+        self.comp = 0.0;
+    }
+}
+
+impl AddAssign<f64> for KahanAdder {
+    fn add_assign(&mut self, other: f64) {
+        self.add(&other);
+    }
+}
+
+pub fn heaviside(x: f64) -> f64 {
+    if x >= 0.0 { 1.0 }
+    else { 0.0 }
 }
