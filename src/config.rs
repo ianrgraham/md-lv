@@ -1,37 +1,15 @@
 use clap::{Arg, App, SubCommand};
 use std::str::FromStr;
-use std::fs::File;
-use std::io::BufReader;
-use serde::*;
 
 use crate::simulation::Potential;
 
-
 pub enum ProgramMode {
     Standard,
-    Variant(VariantConfigs, usize),
     GenVariant(usize, Option<(Vec<f64>, bool, bool, Option<Vec<f64>>)>),
     Equilibrate(f64, f64, bool)
 }
 
-#[derive(hdf5::H5Type, Clone, PartialEq, Serialize, Deserialize, Debug)]
-#[repr(C)]
-pub struct VariantConfig {
-    pub rscale: f64,
-    pub vscale: f64
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct VariantConfigs {
-    pub configs: Vec<VariantConfig>
-}
-
-impl VariantConfigs {
-    pub fn len(&self) -> usize {
-        self.configs.len()
-    }
-}
-
+// data structure to ferry parameters from the CLI to the simulation
 pub struct Config {
     pub num: usize,
     pub numa: usize,
@@ -61,7 +39,7 @@ pub struct Config {
 fn conv_match<T>(matches: &clap::ArgMatches, tag: &str) -> T
     where T: FromStr, <T as std::str::FromStr>::Err : std::fmt::Debug  {
     let value = matches.value_of(tag).unwrap();
-    FromStr::from_str(value).expect("Failed to convert &str to type T")
+    FromStr::from_str(value).expect(&format!("Failed to convert &str to type {}", std::any::type_name::<T>()))
 }
 
 // convert matches to corresponding generic types, panic if there is an issue
@@ -71,20 +49,18 @@ fn conv_optional_match<T>(matches: &clap::ArgMatches, tag: &str) -> Option<T>
         Some(value) => value,
         None => return None
     };
-    Some(FromStr::from_str(value).expect("Failed to convert &str to type T"))
+    Some(FromStr::from_str(value).expect(&format!("Failed to convert &str to type {}", std::any::type_name::<T>())))
 }
 
 impl Config {
-
-    // todo need to add addition config parameters for modifying potential and 
 
     // initialize configuration from command line arguments
     pub fn new() -> Config {
 
         let matches = App::new("Langevin dynamics simulation")
-            .version("0.4.0")
+            .version(env!("CARGO_PKG_VERSION"))
             .author("Ian Graham <irgraham1@gmail.com>")
-            .about("Runs a simulation of a collection of Hertzian particles in the NVT ensemble. \
+            .about("Runs a simulation of a collection of particles in the NVT ensemble. \
                 Applies overdamped langevin dynamics to update the system.")
             .arg(Arg::with_name("NUM")
                 .short("n")
@@ -93,21 +69,21 @@ impl Config {
                 .takes_value(true)
                 .default_value("10"))
             .arg(Arg::with_name("NUMA")
-                .short("n-a")
+                .short("a")
                 .long("num-a")
-                .help("Max number of A (small) particles in the box")
+                .help("Max number of A (small) particles in the box. For the LJ and WCA potentials this corresponds to the particles that are traditionally labeled B in the literature")
                 .takes_value(true)
                 .default_value("5"))
             .arg(Arg::with_name("LEN")
                 .short("l")
                 .long("len")
-                .help("Side length of the simulation box")
+                .help("Side length of the (square or cubic) simulation box")
                 .takes_value(true)
                 .default_value("3.0"))
             .arg(Arg::with_name("PHI")
                 .long("phi")
                 .takes_value(true)
-                .help("Specify the packing fraction instead of box length. Definition dependent on potential used")
+                .help("Specify the packing fraction instead of box length [conflicts with: LEN]")
                 .conflicts_with("LEN"))
             .arg(Arg::with_name("TEMP")
                 .short("t")
@@ -143,9 +119,10 @@ impl Config {
             .arg(Arg::with_name("DIM")
                 .short("d")
                 .long("dim")
-                .help("Dimensions of the simulation box (2 or 3)")
+                .help("Dimensions of the simulation box")
                 .takes_value(true)
-                .default_value("2"))
+                .default_value("2")
+                .possible_values(&["2", "3"]))
             .arg(Arg::with_name("DIR")
                 .long("dir")
                 .help("Output directory of data dumps")
@@ -157,12 +134,6 @@ impl Config {
                 .help("Time between output dumps")
                 .takes_value(true)
                 .default_value("1.0"))
-            // .arg(Arg::with_name("OUTLOG")
-            //     .short("o")
-            //     .long("out-time-log")
-            //     .help("Time between log-separated output dumps")
-            //     .takes_value(true)
-            //     .conflicts_with("OUT"))
             .arg(Arg::with_name("STDOUT")
                 .short("i")
                 .long("stdout-time")
@@ -177,7 +148,7 @@ impl Config {
             .arg(Arg::with_name("INIT_CONFIG")
                 .long("init-config")
                 .help("JSON config file initializing the system state. \
-                    Will assert that config is valid")
+                    Will assert that the config is valid [conflicts with: NUM, NUMA, LEN, PHI, and DIM]")
                 .takes_value(true)
                 .conflicts_with("NUM")
                 .conflicts_with("NUMA")
@@ -195,25 +166,11 @@ impl Config {
             .arg(Arg::with_name("UNWRAP")
                 .long("unwrap")
                 .help("Output unwrapped particle trajectories"))
-            .arg(Arg::with_name("KAHAN")
-                .long("kahan")
-                .help("Utilize Kahan Summation in the Euler-Mayurama method"))
             .arg(Arg::with_name("IMAGES")
                 .long("images")
                 .help("Force computation of all periodic images"))
-            .subcommand(SubCommand::with_name("variant")
-                .about("Used to run variant trajectories with differing parameters")
-                .arg(Arg::with_name("CONFIG")
-                    .required(true)
-                    .index(1)
-                    .help("JSON config file containing variant params"))
-                .arg(Arg::with_name("REALIZATIONS")
-                    .long("realizations")
-                    .takes_value(true)
-                    .default_value("1000000")
-                    .help("Number of realizations to run")))
             .subcommand(SubCommand::with_name("gen-variant")
-                .about("Used to run generic variant method")
+                .about("Run simulation alongside Chen and Horing method to compute bias potentials. We denote each ")
                 .arg(Arg::with_name("REALIZATIONS")
                     .long("realizations")
                     .takes_value(true)
@@ -223,7 +180,7 @@ impl Config {
                     .long("del-var")
                     .use_delimiter(true)
                     .takes_value(true)
-                    .help("Optional variants to compute"))
+                    .help("Optional variants to compute. This is a list of \\chi values that describe the relative difference in the potential prefactors between the reference and target simulations"))
                 .arg(Arg::with_name("CALCMSD")
                     .requires("DELVAR")
                     .long("calc-msd")
@@ -237,15 +194,17 @@ impl Config {
                     .long("calc-q")
                     .use_delimiter(true)
                     .takes_value(true)
-                    .help("Calculate biased Q(a)")))
+                    .help("Calculate biased Q(a) (simple overlap function)")))
             .subcommand(SubCommand::with_name("equil-gd")
-                .about("Generate loadable simulation config quenched to its inherent structure")
+                .about("Generate loadable simulation config quenched to its inherent structure. By default ignores TIME unless the --melt flag is provided")
                 .arg(Arg::with_name("MAX_DR")
                     .required(true)
-                    .default_value("1e-10"))
+                    .default_value("1e-10")
+                    .help("Maximum allowed step displacement size before stopping"))
                 .arg(Arg::with_name("MAX_F")
                     .required(true)
-                    .default_value("1e-10"))
+                    .default_value("1e-10")
+                    .help("Maximum allowed inter-particle force before stopping"))
                 .arg(Arg::with_name("MELT")
                     .long("melt")
                     .help("Run Langevin dynamics before quenching")))
@@ -267,19 +226,11 @@ impl Config {
         let rscale = conv_match(&matches, "RSCALE");
         let vscale = conv_match(&matches, "VSCALE");
         let pot_str = matches.value_of("POT").unwrap();
-        let potential = match pot_str {
-            "hertz" => {
-                Potential::Hertz
-            }
-            "lj" => {
-                Potential::LJ
-            }
-            _ => {
-                panic!()
-            }
-        };
 
-        assert_eq!(rscale, 1.0); // We don't want to fiddle with this any longer
+        let potential = Potential::from_str(pot_str).unwrap();
+
+        // We don't want to fiddle with this any longer
+        assert_eq!(rscale, 1.0, "The 'rscale' parameter is deprecated in this analysis.");
 
         let dryprint = matches.is_present("DRYPRINT");
         let unwrap = matches.is_present("UNWRAP");
@@ -287,17 +238,7 @@ impl Config {
         let init_config = matches.value_of("INIT_CONFIG").map(|path| path.to_string());
 
         let mode: ProgramMode = {
-            if let Some(variant_match) = matches.subcommand_matches("variant") {
-                let path = variant_match.value_of("CONFIG").unwrap();
-                let realizations = conv_match(&variant_match, "REALIZATIONS");
-                //let variants: VariantConfigs = confy::load_path(path)
-                let reader = BufReader::new(File::open(path).unwrap());
-                let variants = serde_json::from_reader(reader)
-                    .expect("Failed to open variant config!");
-                dbg!(&variants);
-                ProgramMode::Variant(variants, realizations)
-            }
-            else if let Some(equil_match) = matches.subcommand_matches("equil-gd") {
+            if let Some(equil_match) = matches.subcommand_matches("equil-gd") {
                 let max_dr: f64 = conv_match(&equil_match, "MAX_DR");
                 let max_f: f64 = conv_match(&equil_match, "MAX_F");
                 let melt = equil_match.is_present("MELT");

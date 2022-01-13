@@ -10,23 +10,9 @@ use ndarray::*;
 use std::ops::AddAssign;
 use itertools::iproduct;
 
-use crate::config::{Config, ProgramMode, VariantConfigs, VariantConfig};
+use crate::config::{Config, ProgramMode};
 
 use Potential::*;
-
-#[derive(hdf5::H5Type, Clone, PartialEq, Debug)]
-#[repr(C)]
-pub struct HDF5OutputMeta {
-    num: usize,
-    len: f64,
-    temp: f64,
-    time: f64,
-    dim: usize,
-    visc: f64,
-    seed: u64,
-    rscale: f64,
-    vscale: f64
-}
 
 pub struct HDF5VarDatasetCol {
     time: hdf5::Dataset,
@@ -34,16 +20,7 @@ pub struct HDF5VarDatasetCol {
     integration: hdf5::Dataset
 }
 
-impl HDF5OutputMeta {
-    
-    fn new(config: &Config) -> HDF5OutputMeta {
-        HDF5OutputMeta{
-            num: config.num, len: config.len, dim: config.dim, time: config.time, temp: config.temp,
-            visc: config.visc, seed: config.seed, rscale: config.rscale, vscale: config.vscale
-        }
-    }
-}
-
+// Implement various potentials as enums
 #[derive(Copy, Clone, Serialize, Deserialize)]
 pub enum Potential {
     Hertz,
@@ -84,6 +61,7 @@ impl Potential {
     }
 }
 
+// State of the particles and simulation box
 #[derive(Serialize, Deserialize)]
 pub struct System {
     x: Vec<[f64; 3]>,
@@ -102,27 +80,12 @@ fn calc_vol(len: f64, dim: usize) -> f64 {
 }
 
 fn calc_l_from_phi(config: &Config, _types: &Vec<usize>, _sigmas: &Box<[f64]>, target_phi: f64) -> f64 {
-    match config.potential {
-        Potential::Hertz => {
-            ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
-        }, 
-        Potential::LJ | Potential::WCA => {
-            ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
-        }
-    }
+    ((config.num as f64)/target_phi).powf(1.0/(config.dim as f64))
 }
 
 impl System {
-
     fn calc_phi(&self, vol: f64) -> f64 {
-        match self.potential {
-            Potential::Hertz => {
-                (self.x.len() as f64)/vol
-            }, 
-            Potential::LJ | Potential::WCA => {
-                (self.x.len() as f64)/vol
-            }
-        }
+        (self.x.len() as f64)/vol
     }
 }
 
@@ -132,6 +95,7 @@ pub enum OutputWriter {
     JSONFile(std::io::BufWriter<std::fs::File>)
 }
 
+// State of the overall simulation
 pub struct Simulation {
     pub sys: System,
     rng: rand_pcg::Lcg128Xsl64,
@@ -254,10 +218,6 @@ impl Simulation {
                 format!("{}/traj_n-{}_na-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.xyz",
                     config.dir, sys.x.len(), sys.numa, l, config.temp, config.time, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
             },
-            ProgramMode::Variant(_, _) => {
-                format!("{}/variants_n-{}_na-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.h5",
-                    config.dir, sys.x.len(), sys.numa, l, config.temp, config.time, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
-            },
             ProgramMode::GenVariant(_, _) => {
                 format!("{}/genvariant_n-{}_na-{}_l-{}_t-{}_time-{}_dt-{:e}_visc-{}_seed-{}_phi-{:.4}_pot-{}_rs-{}_vs-{}.h5",
                     config.dir, sys.x.len(), sys.numa, l, config.temp, config.time, dt, visc, seed, phi, config.potential.to_str(), config.rscale, sys.vscale)
@@ -283,8 +243,8 @@ impl Simulation {
                     .unwrap();
                 OutputWriter::XYZBuffer(BufWriter::new(file))
             },
-            ProgramMode::Variant(_, _) => 
-                OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
+            // ProgramMode::Variant(_, _) => 
+            //     OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
             ProgramMode::GenVariant(_, _) => 
                 OutputWriter::HDF5File(hdf5::File::create(path).unwrap()),
             ProgramMode::Equilibrate(_, _, _) => {
@@ -334,6 +294,7 @@ impl Simulation {
         sim
     }
 
+    // force calculation for a particle paith
     fn force(&self, norm: f64, i: usize, j: usize) -> Option<f64> {
         match self.sys.potential {
             Potential::Hertz => {
@@ -343,7 +304,8 @@ impl Simulation {
                 }
                 else {
                     let vscale = self.sys.vscale;
-                    let mag = (10.0*vscale/sigma)*(1.0-norm/sigma).powf(1.5);
+                    let term = 1.0-norm/sigma;
+                    let mag = (vscale/sigma)*term*term.sqrt();
                     Some(mag)
                 }
             }
@@ -351,7 +313,7 @@ impl Simulation {
                 // sys.sigmas has data for both the sigmas, and the relative potential strengths
                 let pair =  self.sys.types[i] + self.sys.types[j];
                 let sigma = self.sys.sigmas[pair];
-                if norm > sigma*2.5 { // 1.12246204831
+                if norm > sigma*2.5 {
                     None
                 }
                 else {
@@ -388,6 +350,7 @@ impl Simulation {
         }
     }
 
+    // force calculation for the entire system
     pub fn f_system(&mut self) -> Vec<[f64; 3]> {
         let num = self.sys.x.len();
         let mut comp: f64;
@@ -403,12 +366,7 @@ impl Simulation {
                 dr = self.pbc_vdr_vec(i, j);
                 match &self.images {
                     None => {
-                        unsafe {
-                            norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
-                                + dr.get_unchecked(1)*dr.get_unchecked(1)
-                                + dr.get_unchecked(2)*dr.get_unchecked(2)
-                            ).sqrt();
-                        }
+                        norm = dr.iter().fold(0.0, |accum, x| accum + x*x).sqrt();
                         if let Some(mag) = self.force(norm, i, j) {
                             for k in 0..(self.sys.dim) {
                                 comp = mag*dr[k]/norm;
@@ -418,15 +376,10 @@ impl Simulation {
                         }
                     },
                     Some(images) => {
+                        let mut new_dr = [0.0f64, 0.0, 0.0];
                         for disp in images {
-                            let mut new_dr = [0.0f64, 0.0, 0.0];
                             new_dr.iter_mut().zip(dr).zip(disp).for_each(|((ri, xi), di)| *ri = xi + di);
-                            unsafe {
-                                norm = (dr.get_unchecked(0)*dr.get_unchecked(0)
-                                    + dr.get_unchecked(1)*dr.get_unchecked(1)
-                                    + dr.get_unchecked(2)*dr.get_unchecked(2)
-                                ).sqrt();
-                            }
+                            norm = new_dr.iter().fold(0.0, |accum, x| accum + x*x).sqrt();
                             if let Some(mag) = self.force(norm, i, j) {
                                 for k in 0..(self.sys.dim) {
                                     comp = mag*dr[k]/norm;
@@ -434,6 +387,7 @@ impl Simulation {
                                     f_hertz_all[j][k] -= comp;
                                 }
                             }
+                            new_dr = [0.0f64, 0.0, 0.0];
                         }
                     }
                 }
@@ -460,20 +414,20 @@ impl Simulation {
     }
 
     pub fn integration_factor_gen(
-        &self, 
-        force: &Vec<[f64; 3]>, 
-        w: &Vec<f64>) -> [f64; 2] {
-    let mut factors = [0.0; 2];
-    let mut index = 0;
-    for i in 0..self.sys.x.len() {
-        for j in 0..self.sys.dim {
-            factors[0] += 0.25*self.a_term*force[i][j]*force[i][j];
-            factors[1] += 0.5*self.b_term*w[index]*force[i][j];
-            index += 1;
+            &self, 
+            force: &Vec<[f64; 3]>, 
+            w: &Vec<f64>) -> [f64; 2] {
+        let mut factors = [0.0; 2];
+        let mut index = 0;
+        for i in 0..self.sys.x.len() {
+            for j in 0..self.sys.dim {
+                factors[0] += 0.25*self.a_term*force[i][j]*force[i][j];
+                factors[1] += 0.5*self.b_term*w[index]*force[i][j];
+                index += 1;
+            }
         }
+        factors
     }
-    factors
-}
 
     fn pbc_vdr_vec(&self, i: usize, j: usize) -> [f64; 3] {
         let mut mdr: [f64; 3] = [0.0, 0.0, 0.0];
@@ -543,6 +497,7 @@ impl Simulation {
         }
     }
 
+    // Apply a gradient descent step 
     pub fn gd_step(&mut self) -> (f64, f64) {
         // calculate forces
         let forces = self.f_system();
@@ -623,7 +578,7 @@ impl Simulation {
         }
     }
 
-    // dump simulation state to xyz file
+    // dump simulation state to xyz file for easy viewing in Ovito
     pub fn dump_xyz(&mut self) {
         match &mut self.file {
             OutputWriter::XYZBuffer(file) => {
@@ -660,23 +615,6 @@ impl Simulation {
         }
     }
 
-    pub fn dump_hdf5_meta(&mut self, config: &Config, init_x: &Vec<[f64; 3]>, variants: &VariantConfigs) {
-        let file = match &self.file {
-            OutputWriter::HDF5File(file) => file,
-            _ => panic!()
-        };
-        let group = file.create_group("meta").unwrap();
-        let meta = HDF5OutputMeta::new(config);
-        let meta_dataset = group.new_dataset::<HDF5OutputMeta>().create("meta", 1).unwrap();
-        meta_dataset.write(&[meta.clone()]).unwrap();
-        let x_arr = arr2(&(init_x.to_vec())[..]);
-        let init_x_dataset = group.new_dataset::<f64>().create("init_x", x_arr.shape()).unwrap();
-        init_x_dataset.write(&x_arr).unwrap();
-        let vars = arr1(&(variants.configs.to_vec())[..]);
-        let var_dataset = group.new_dataset::<VariantConfig>().create("variants", vars.shape()).unwrap();
-        var_dataset.write(&vars).unwrap();
-    }
-
     fn store_scalar_in_group<T: hdf5::H5Type>(group: &hdf5::Group, data: T, name: &str) {
         let data_arr = arr0(data);
         group.new_dataset::<T>()
@@ -706,45 +644,6 @@ impl Simulation {
         let x_arr = arr2(&(init_x.to_vec())[..]);
         let init_x_dataset = group.new_dataset::<f64>().create("init_x", x_arr.shape()).unwrap();
         init_x_dataset.write(&x_arr).unwrap();
-    }
-
-    pub fn dump_hdf5(
-            &mut self,
-            realization: &usize,
-            time: &Array1<f64>,
-            integration_factors: &Array2<f64>,
-            positions: &Array3<f64>
-    ) {
-        let file = match &self.file {
-            OutputWriter::HDF5File(file) => file,
-            _ => panic!()
-        };
-        let group_name = format!("{}", realization);
-        let group = file.create_group(&group_name[..]).unwrap();
-        let time_data = group.new_dataset::<f64>().create("time", time.shape()).unwrap();
-        time_data.write(time).unwrap();
-        let integration_data = group.new_dataset::<f64>().create("Ib", integration_factors.shape()).unwrap();
-        integration_data.write(integration_factors).unwrap();
-        let position_data = group.new_dataset::<f64>().create("pos", positions.shape()).unwrap();
-        position_data.write(positions).unwrap();
-    }
-
-    pub fn dump_hdf5_to_group(
-        &mut self,
-        realization: &usize,
-        time: &Array1<f64>,
-        integration_factors: &Array2<f64>,
-        positions: &Array3<f64>,
-        group: &hdf5::Group
-    ) {
-        let group_name = format!("{}", realization);
-        let group = group.create_group(&group_name[..]).unwrap();
-        let time_data = group.new_dataset::<f64>().create("time", time.shape()).unwrap();
-        time_data.write(time).unwrap();
-        let integration_data = group.new_dataset::<f64>().create("Ib", integration_factors.shape()).unwrap();
-        integration_data.write(integration_factors).unwrap();
-        let position_data = group.new_dataset::<f64>().create("pos", positions.shape()).unwrap();
-        position_data.write(positions).unwrap();
     }
 
     pub fn create_hdf5_dataset_collection(
@@ -841,19 +740,7 @@ impl Simulation {
         data.position.write_slice(positions, slice4d).unwrap();
     }
 
-    pub fn create_hdf5_group(
-            &mut self,
-            group_name: String
-    ) -> hdf5::Group {
-        let file = match &self.file {
-            OutputWriter::HDF5File(file) => file,
-            _ => panic!()
-        };
-
-        let group = file.create_group(&group_name[..]).unwrap();
-        group
-    }
-
+    // dump equilibrated state to json
     pub fn dump_json(&mut self) {
         let out = serde_json::to_string(&self.sys).unwrap();
         match &mut self.file {
@@ -896,6 +783,9 @@ impl Simulation {
     }
 }
 
+// Implementation of Kahan Adder to ensure precision is retained when
+// accumulating bias factors, though from error analysis we find this isn't 
+// actually necessary
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
 pub struct KahanAdder {
     accum: f64,
@@ -932,6 +822,7 @@ impl AddAssign<f64> for KahanAdder {
     }
 }
 
+// step function
 pub fn heaviside(x: f64) -> f64 {
     if x >= 0.0 { 1.0 }
     else { 0.0 }

@@ -37,7 +37,7 @@ fn main() {
         ProgramMode::GenVariant(realizations, variants) => {
 
             if variants.is_none() {
-                // store data from every realization so that biases can be computed after the fact
+
                 let init_x = sim.get_positions();
 
                 let write_outputs = config.step_max/config.write_step;
@@ -106,13 +106,12 @@ fn main() {
                         let w = sim.rand_force_vector();
                         let forces_a = sim.f_system();
 
-                        for (int_factor_term, term) in integration_factors
+                        integration_factors
                             .iter_mut()
-                            .zip(sim.integration_factor_gen(&forces_a, &w)) 
-                        {
-                            *int_factor_term += term;
-                        }
-                        // integration_factors[i] += ;
+                            .zip(sim.integration_factor_gen(&forces_a, &w))
+                            .for_each(|(int_factor_term, term)| {
+                                *int_factor_term += term;
+                            });
                 
                         // print to terminal
                         if config.stdout_step.is_some() {
@@ -124,7 +123,7 @@ fn main() {
                         sim.langevin_step_with_forces_w(&forces_a, &w);
 
                     }
-                    // sim.dump_hdf5_to_group(&real, &time, &output_integration_factors, &output_positions, &group);
+
                     if dump {
                         let out_slice = Slice::from(..=chunk_idx);
                         sim.dump_hdf5_large_slices_to_dataset(
@@ -149,14 +148,11 @@ fn main() {
 
                 let mut names = Vec::new();
                 let mut shapes: Vec<Vec<usize>> = Vec::new();
-                // let mut write_data = Vec::new();
-                // let mut exists = Vec::new();
 
                 let len_vars = variants.0.len();
                 let vars = &variants.0;
                 let option_q_as = variants.3.as_ref();
 
-                // add new "param" group to store dVs and optional Q_As
                 let file = match &sim.file {
                     OutputWriter::HDF5File(file) => file,
                     _ => panic!()
@@ -173,9 +169,6 @@ fn main() {
 
                 names.push("time");
                 shapes.push(vec![write_outputs]);
-                // let mut time_data_dump = Array1::<f64>::zeros(write_outputs);
-                // write_data.push(ArrayD::<f64>::zeros(IxDyn(&[write_outputs])));
-                // exists.push(true);
 
                 names.push("Norm");
                 shapes.push(vec![len_vars, write_outputs]);
@@ -184,14 +177,12 @@ fn main() {
                 names.push("Norm2");
                 shapes.push(vec![len_vars, write_outputs]);
                 let mut norm2_data = Array2::<f64>::zeros((len_vars, write_outputs));
-                // write_data.push(ArrayD::<f64>::zeros(IxDyn(&[len_vars, write_outputs])));
-                // exists.push(true);
+
 
                 let mut msd_data = if variants.1 {
                     names.push("MSD");
                     shapes.push(vec![len_vars, write_outputs]);
-                    // write_data.push(ArrayD::<f64>::zeros(IxDyn(&[len_vars, write_outputs])));
-                    // exists.push(true);
+
                     Some(Array2::<f64>::zeros((len_vars, write_outputs)))
                 }
                 else {
@@ -201,8 +192,6 @@ fn main() {
                 let mut pos_data = if variants.2 {
                     names.push("POS");
                     shapes.push(vec![len_vars, write_outputs, init_x.len(), 3]);
-                    // write_data.push(ArrayD::<f64>::zeros(IxDyn(&[len_vars, write_outputs, init_x.len(), 3])));
-                    // exists.push(true);
                     Some(Array4::<f64>::zeros((len_vars, write_outputs, init_x.len(), 3)))
                 }
                 else {
@@ -212,12 +201,9 @@ fn main() {
                 let mut q_data = if let Some(qs) = &variants.3 {
                     names.push("Q");
                     shapes.push(vec![len_vars, qs.len(), write_outputs]);
-                    // write_data.push(ArrayD::<f64>::zeros(IxDyn(&[len_vars, qs.len(), write_outputs])));
-                    // exists.push(true);
                     Some(Array3::<f64>::zeros((len_vars, qs.len(), write_outputs)))
                 }
                 else {
-                    // exists.push(false);
                     None
                 };
 
@@ -333,7 +319,6 @@ fn main() {
                         }
                     }
 
-                    // norm_data.iter_mut().zip(tmp_ib);
                     azip!((a in &mut norm_data, &b in &tmp_ib) *a += b);
                     azip!((a in &mut norm2_data, &b in &tmp_ib) *a += b*b);
 
@@ -401,7 +386,6 @@ fn main() {
                 step += 1;
             }
             sim.dump_json();
-        },
-        _ => {}
+        }
     }
 }
